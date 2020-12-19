@@ -1,81 +1,86 @@
-use std::io::{self, Write};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use shared_child::SharedChild;
+use nix::sys::signal::{kill, SIGTERM};
+use nix::unistd::Pid;
 
-struct ChildContainer {
-    shared_child: SharedChild,
-    child_created: Condvar,
-}
+use inotify::{Inotify, WatchMask};
+
+// TODO
+// cli parsing
+//   usage
+//   help, -h
+//   -r
+//   -v
+//   --exit-on-error
+// notify library
+// correct stdout/stderr
+// handle ctrl-c
+//   respond immediately
+//   start cleaning
+//   force exit after 10s
+// tests
 
 fn main() {
-    println!("Hello, world!");
+    // mutex with our pid
+    let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
 
-    let mut command = Command::new("bash");
-    command.args(&["-c", "for i in {0..3}; do echo $i; sleep 1s; done"]);
-    //command.stdout(Stdio::piped());
+    // spawn the inotify handling thread with a clone of the reference to pid
+    spawn_inotify_thread(pid_ref.clone());
 
-    //test1(&mut command);
+    loop {
+        let mut command = Command::new("bash");
+        command.args(&["-c", "for i in {0..3}; do echo $i; sleep 1s; done"]);
 
-    let shared_child = SharedChild::spawn(&mut command).unwrap();
-    let child_container = ChildContainer { shared_child };
+        let mut child = command.spawn().expect("Could not execute command");
 
-    let container_arc = Arc::new(Mutex::new(child_container));
-    let container_arc_clone = container_arc.clone();
+        // grab the mutex lock, set pid and then drop the lock to release it
+        let mut pid = pid_ref.lock().unwrap();
+        *pid = Some(child.id() as i32);
+        drop(pid);
 
-    let notify_thread = std::thread::spawn(move || {
-        for i in 0..5 {
-            println!("thread {}", i);
-            thread::sleep(Duration::from_millis(500));
-        }
+        // wait for child process to exit
+        let exitstatus = child.wait().expect("could not wait");
+        println!("Child died, {}", exitstatus);
 
-        println!("time to kill");
-        container_arc_clone.lock().unwrap().shared_child.kill().unwrap();
-        println!("after kill");
-    });
-
-    let exitstatus = container_arc.lock().unwrap().shared_child.wait().expect("command wasn't running");
-    println!("foo3");
-
-    println!("exit status: {}", exitstatus);
-
-    thread::sleep(Duration::from_millis(1000));
+        // sleep here to avoid loop becoming incredibly spammy
+        thread::sleep(Duration::from_millis(1000));
+    }
 }
 
-// not worky
-fn test1(command: &mut Command) {
-    println!("foo1");
+fn spawn_inotify_thread(pid_ref: Arc<Mutex<Option<i32>>>) {
+    std::thread::spawn(move || {
+        let mut inotify = Inotify::init().expect("Error while initializing inotify instance");
 
-    let mut child = command.spawn().unwrap();
-    println!("foo2");
+        // TODO recurse through dirs and add watches
+        inotify
+            .add_watch(".", WatchMask::MODIFY)
+            .expect("Could not add watch");
 
-    let child_ref = Arc::new(Mutex::new(child));
+        loop {
+            let mut buffer = [0; 1024]; // buffer to store inotify events
+            inotify
+                .read_events_blocking(&mut buffer)
+                .expect("Error while reading events");
 
-    let clone_ref = Arc::clone(&child_ref);
+            let pid = pid_ref.lock().unwrap();
+            match *pid {
+                None => println!("no pid to kill!"),
+                Some(pid) => safe_kill(pid),
+            }
 
-    thread::spawn(move || {
-        for i in 0..5 {
-            println!("thread {}", i);
-            thread::sleep(Duration::from_millis(500));
+            // sleep and then clear the event queue by doing a non-blocking read
+            thread::sleep(Duration::from_millis(2000));
+            inotify.read_events(&mut buffer).expect("Could not read events");
         }
-
-        //let child = child_ref.unwrap();
-        (*clone_ref)
-            .lock()
-            .unwrap()
-            .kill()
-            .expect("Error killing child");
     });
+}
 
-    let exitstatus = (*child_ref)
-        .lock()
-        .unwrap()
-        .wait()
-        .expect("command wasn't running");
-    println!("foo3");
-
-    println!("exit status: {}", exitstatus);
+fn safe_kill(pid: i32) {
+    match kill(Pid::from_raw(pid), SIGTERM) {
+        Ok(_) => (),
+        Err(e) => println!("Kill got error: {}", e),
+    }
 }

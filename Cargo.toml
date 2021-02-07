@@ -1,7 +1,15 @@
 [package]
-name = "run_restart"
+name = "runar"
 version = "0.1.0"
 authors = ["Daniel Ohlsson <dohlsson89@gmail.com>"]
+description = "Watches for changes in files and runs/restarts a program"
+documentation = "https://github.com/DOhlsson/runar"
+homepage = "https://github.com/DOhlsson/runar"
+repository = "https://github.com/DOhlsson/runar"
+readme = "README.md"
+keywords = ["run", "restart", "watch", "nodemon"]
+categories = ["command-line-utilities"]
+license = "GPL-3.0-or-later"
 edition = "2018"
 
 [dependencies]

@@ -8,22 +8,76 @@ use nix::unistd::Pid;
 
 use inotify::{Inotify, WatchMask};
 
+use clap::{App, Arg};
+
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const AUTHORS: &'static str = env!("CARGO_PKG_AUTHORS");
+const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
+
 // TODO
-// cli parsing
-//   usage
-//   help, -h
-//   -r
-//   -v
-//   --exit-on-error
 // notify library
 // correct stdout/stderr
 // handle ctrl-c
 //   respond immediately
 //   start cleaning
 //   force exit after 10s
-// tests
+// handle other signals https://rust-cli.github.io/book/in-depth/signals.html
 
 fn main() {
+    let matches = App::new("runar")
+        .version(VERSION)
+        .author(AUTHORS)
+        .about(DESCRIPTION)
+        .arg(
+            Arg::with_name("recursive")
+                .help("recursively watch directories")
+                .short("r")
+                .long("recursive")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("verbose")
+                .help("increases the level of verbosity")
+                .short("v")
+                .long("verbose")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("exit")
+                .help("exit when COMMAND exits")
+                .long("exit")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("exit-on-error")
+                .help("exit when COMMAND returns non-zero")
+                .long("exit-on-error")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("command")
+                .help("sets the input file to use")
+                .required(true)
+                .value_name("COMMAND")
+                .index(1),
+        )
+        .arg(
+            Arg::with_name("files")
+                .help("the file(s) to watch")
+                .required(true)
+                .value_name("FILE")
+                .index(2)
+                .multiple(true)
+                .takes_value(true),
+        )
+        .get_matches();
+
+    let opt_command = matches.value_of("command").unwrap();
+    let opt_verbose = matches.is_present("verbose");
+    let opt_files = matches.values_of("files").unwrap();
+
+    println!("hey cmd({}) verbose({}) files({:?})", opt_command, opt_verbose, opt_files);
+
     // mutex with our pid
     let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
 
@@ -31,8 +85,8 @@ fn main() {
     spawn_inotify_thread(pid_ref.clone());
 
     loop {
-        let mut command = Command::new("bash");
-        command.args(&["-c", "for i in {0..3}; do echo $i; sleep 1s; done"]);
+        let mut command = Command::new("sh");
+        command.args(&["-c", opt_command]);
 
         let mut child = command.spawn().expect("Could not execute command");
 
@@ -72,8 +126,11 @@ fn spawn_inotify_thread(pid_ref: Arc<Mutex<Option<i32>>>) {
             }
 
             // sleep and then clear the event queue by doing a non-blocking read
+            // prevents us from restarting multiple times because of burst changes
             thread::sleep(Duration::from_millis(2000));
-            inotify.read_events(&mut buffer).expect("Could not read events");
+            inotify
+                .read_events(&mut buffer)
+                .expect("Could not read events");
         }
     });
 }

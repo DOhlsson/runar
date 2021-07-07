@@ -17,6 +17,9 @@ nix = "0.19"
 inotify = "0.9"
 clap = "2.33"
 
+[dev-dependencies]
+assert_cli = "0.5"
+
 [profile.release]
 # strip = "symbols" # nightly
 opt-level = "z"

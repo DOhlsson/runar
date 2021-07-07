@@ -34,15 +34,17 @@ fn main() {
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("exit")
-                .help("exit when COMMAND exits")
-                .long("exit")
+            Arg::with_name("exit-on-error")
+                .help("exit when COMMAND returns non-zero")
+                .short("e")
+                .long("exit-on-error")
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("exit-on-error")
-                .help("exit when COMMAND returns non-zero")
-                .long("exit-on-error")
+            Arg::with_name("exit")
+                .help("exit when COMMAND exits")
+                .short("x")
+                .long("exit")
                 .takes_value(false),
         )
         .arg(

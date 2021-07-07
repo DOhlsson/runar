@@ -16,3 +16,10 @@ edition = "2018"
 nix = "0.19"
 inotify = "0.9"
 clap = "2.33"
+
+[profile.release]
+# strip = "symbols" # nightly
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

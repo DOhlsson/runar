@@ -14,15 +14,6 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &'static str = env!("CARGO_PKG_AUTHORS");
 const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
 
-// TODO
-// notify library
-// correct stdout/stderr
-// handle ctrl-c
-//   respond immediately
-//   start cleaning
-//   force exit after 10s
-// handle other signals https://rust-cli.github.io/book/in-depth/signals.html
-
 fn main() {
     let matches = App::new("runar")
         .version(VERSION)
@@ -72,11 +63,12 @@ fn main() {
         )
         .get_matches();
 
-    let opt_command = matches.value_of("command").unwrap();
+    let opt_recursive = matches.is_present("recursive");
     let opt_verbose = matches.is_present("verbose");
+    let opt_exit = matches.is_present("exit");
+    let opt_exit_on_error = matches.is_present("exit-on-error");
+    let opt_command = matches.value_of("command").unwrap();
     let opt_files = matches.values_of("files").unwrap();
-
-    println!("hey cmd({}) verbose({}) files({:?})", opt_command, opt_verbose, opt_files);
 
     // mutex with our pid
     let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
@@ -97,7 +89,9 @@ fn main() {
 
         // wait for child process to exit
         let exitstatus = child.wait().expect("could not wait");
-        println!("Child died, {}", exitstatus);
+        if opt_verbose {
+            println!("child died, {}", exitstatus);
+        }
 
         // sleep here to avoid loop becoming incredibly spammy
         thread::sleep(Duration::from_millis(1000));
@@ -119,11 +113,7 @@ fn spawn_inotify_thread(pid_ref: Arc<Mutex<Option<i32>>>) {
                 .read_events_blocking(&mut buffer)
                 .expect("Error while reading events");
 
-            let pid = pid_ref.lock().unwrap();
-            match *pid {
-                None => println!("no pid to kill!"),
-                Some(pid) => safe_kill(pid),
-            }
+            safe_kill(&pid_ref);
 
             // sleep and then clear the event queue by doing a non-blocking read
             // prevents us from restarting multiple times because of burst changes
@@ -135,9 +125,16 @@ fn spawn_inotify_thread(pid_ref: Arc<Mutex<Option<i32>>>) {
     });
 }
 
-fn safe_kill(pid: i32) {
-    match kill(Pid::from_raw(pid), SIGTERM) {
-        Ok(_) => (),
-        Err(e) => println!("Kill got error: {}", e),
+fn safe_kill(pid_ref: &Arc<Mutex<Option<i32>>>) {
+    let pid = pid_ref.lock().unwrap();
+
+    match *pid {
+        None => eprintln!("no pid to kill!"),
+        Some(pid) => {
+            match kill(Pid::from_raw(pid), SIGTERM) {
+                Ok(_) => (),
+                Err(e) => eprintln!("Kill got error: {}", e),
+            }
+        }
     }
 }

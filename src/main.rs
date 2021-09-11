@@ -11,6 +11,8 @@ use inotify::{Inotify, WatchMask};
 
 use clap::{App, Arg};
 
+use walkdir::WalkDir;
+
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &'static str = env!("CARGO_PKG_AUTHORS");
 const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
@@ -127,11 +129,19 @@ fn spawn_inotify_thread(
         let mut inotify = Inotify::init().expect("Error while initializing inotify instance");
 
         for i in 0..opt_files.len() {
-            // TODO recurse through dirs and add watches
-            // TODO better handle error, what can go wrong? kernel inotify limit?
-            inotify
-                .add_watch(opt_files[i].clone(), WatchMask::MODIFY)
-                .expect("Could not add watch");
+            let target = opt_files[i].clone();
+            if opt_recursive {
+                for entry in WalkDir::new(target).into_iter() {
+                    let path = entry.unwrap().into_path();
+                    inotify
+                        .add_watch(path, WatchMask::MODIFY)
+                        .expect("Could not add watch");
+                }
+            } else {
+                inotify
+                    .add_watch(target, WatchMask::MODIFY)
+                    .expect("Could not add watch");
+            }
         }
 
         loop {

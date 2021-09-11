@@ -445,6 +445,7 @@ dependencies = [
  "clap",
  "inotify",
  "nix",
+ "walkdir",
 ]
 
 [[package]]

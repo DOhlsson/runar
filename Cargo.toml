@@ -16,12 +16,13 @@ edition = "2018"
 nix = "0.19"
 inotify = "0.9"
 clap = "2.33"
+walkdir = "2.3"
 
 [dev-dependencies]
 assert_cli = "0.5"
 
 [profile.release]
-# strip = "symbols" # nightly
+# strip = "symbols" # nightly only
 opt-level = "z"
 lto = "fat"
 codegen-units = 1

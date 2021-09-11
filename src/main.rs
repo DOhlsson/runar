@@ -1,3 +1,4 @@
+use std::process;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -31,25 +32,26 @@ fn main() {
                 .help("increases the level of verbosity")
                 .short("v")
                 .long("verbose")
+                .multiple(false)
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("exit-on-error")
-                .help("exit when COMMAND returns non-zero")
+                .help("exits with the same status code as COMMAND")
                 .short("e")
                 .long("exit-on-error")
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("exit")
-                .help("exit when COMMAND exits")
+                .help("exit when COMMAND returns zero")
                 .short("x")
                 .long("exit")
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("command")
-                .help("sets the input file to use")
+                .help("the COMMAND to execute")
                 .required(true)
                 .value_name("COMMAND")
                 .index(1),
@@ -65,18 +67,24 @@ fn main() {
         )
         .get_matches();
 
-    let opt_recursive = matches.is_present("recursive");
     let opt_verbose = matches.is_present("verbose");
+    let opt_recursive = matches.is_present("recursive");
+    let opt_x_on_err = matches.is_present("exit-on-error");
     let opt_exit = matches.is_present("exit");
-    let opt_exit_on_error = matches.is_present("exit-on-error");
     let opt_command = matches.value_of("command").unwrap();
-    let opt_files = matches.values_of("files").unwrap();
+    let opt_files: Arc<Vec<String>> = Arc::new(
+        matches
+            .values_of("files")
+            .unwrap()
+            .map(String::from)
+            .collect(),
+    );
 
     // mutex with our pid
     let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
 
     // spawn the inotify handling thread with a clone of the reference to pid
-    spawn_inotify_thread(pid_ref.clone());
+    spawn_inotify_thread(pid_ref.clone(), opt_verbose, opt_recursive, opt_files);
 
     loop {
         let mut command = Command::new("sh");
@@ -91,8 +99,17 @@ fn main() {
 
         // wait for child process to exit
         let exitstatus = child.wait().expect("could not wait");
+
         if opt_verbose {
-            println!("child died, {}", exitstatus);
+            println!("<runar> child process exited with {}", exitstatus);
+        }
+
+        if opt_x_on_err && !exitstatus.success() {
+            process::exit(exitstatus.code().unwrap());
+        }
+
+        if opt_exit && exitstatus.success() {
+            process::exit(0);
         }
 
         // sleep here to avoid loop becoming incredibly spammy
@@ -100,20 +117,34 @@ fn main() {
     }
 }
 
-fn spawn_inotify_thread(pid_ref: Arc<Mutex<Option<i32>>>) {
+fn spawn_inotify_thread(
+    pid_ref: Arc<Mutex<Option<i32>>>,
+    opt_verbose: bool,
+    opt_recursive: bool,
+    opt_files: Arc<Vec<String>>,
+) {
     std::thread::spawn(move || {
         let mut inotify = Inotify::init().expect("Error while initializing inotify instance");
 
-        // TODO recurse through dirs and add watches
-        inotify
-            .add_watch(".", WatchMask::MODIFY)
-            .expect("Could not add watch");
+        for i in 0..opt_files.len() {
+            // TODO recurse through dirs and add watches
+            // TODO better handle error, what can go wrong? kernel inotify limit?
+            inotify
+                .add_watch(opt_files[i].clone(), WatchMask::MODIFY)
+                .expect("Could not add watch");
+        }
 
         loop {
             let mut buffer = [0; 1024]; // buffer to store inotify events
+
             inotify
                 .read_events_blocking(&mut buffer)
                 .expect("Error while reading events");
+
+            if opt_verbose {
+                // TODO list which files
+                println!("<runar> files modified");
+            }
 
             safe_kill(&pid_ref);
 
@@ -131,12 +162,10 @@ fn safe_kill(pid_ref: &Arc<Mutex<Option<i32>>>) {
     let pid = pid_ref.lock().unwrap();
 
     match *pid {
-        None => eprintln!("no pid to kill!"),
-        Some(pid) => {
-            match kill(Pid::from_raw(pid), SIGTERM) {
-                Ok(_) => (),
-                Err(e) => eprintln!("Kill got error: {}", e),
-            }
-        }
+        None => eprintln!("<runar> Error: no pid to kill!"),
+        Some(pid) => match kill(Pid::from_raw(pid), SIGTERM) {
+            Ok(_) => (),
+            Err(e) => eprintln!("<runar> Kill got error: {}", e),
+        },
     }
 }

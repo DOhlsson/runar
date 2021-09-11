@@ -23,6 +23,6 @@ assert_cli = "0.5"
 [profile.release]
 # strip = "symbols" # nightly
 opt-level = "z"
-lto = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"

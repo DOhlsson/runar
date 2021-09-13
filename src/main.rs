@@ -83,6 +83,10 @@ fn main() {
             .collect(),
     );
 
+    if opt_verbose {
+        println!("<runar> started with pid {}", process::id());
+    }
+
     // mutex with child process pid
     let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
 

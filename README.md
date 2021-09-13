@@ -7,20 +7,20 @@ To have a binary that is container friendly, dependency-free and of small size
 # TODO
 
 ### features
-* recursion
+* more tests
+* trap sigterm & sigint and send it to prog
+* timer sigterm -> sigkill
 * exclude files
-* catch sigterm and send it to prog
-* more info with verbose flag
 * better logging function
 * handle stdin
-* more tests
 * more cli options
 * multi restart backoff
-* timer sigterm -> sigkill
 * minirunar more like a  C program, to get real small
-* improve config handling, moving opt\_files gets weird
+* improve config handling, moving opt\_files looks weird
+* trap sigchld instead of waiting for child process?
 
 ### bugs
+* some weird sigterm bug
 * kill attempts to kill killed process and if change happens while process is restarting
 
 ### optimization
@@ -34,7 +34,7 @@ To have a binary that is container friendly, dependency-free and of small size
 - xterm 832KB
 - ssh 780KB
 - busybox 700KB
-- *runar 560KB*
+- **runar 576KB**
 - tar 520KB
 - nano 344KB
 - find 304KB

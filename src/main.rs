@@ -1,3 +1,4 @@
+use std::os::unix::process::CommandExt;
 use std::process;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -82,7 +83,7 @@ fn main() {
             .collect(),
     );
 
-    // mutex with our pid
+    // mutex with child process pid
     let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
 
     // spawn the inotify handling thread with a clone of the reference to pid
@@ -91,6 +92,16 @@ fn main() {
     loop {
         let mut command = Command::new("sh");
         command.args(&["-c", opt_command]);
+
+        // the child process needs to set a process group so that we can kill it later
+        // there is a groups() function in nightly that could be used once it's stabilized
+        unsafe {
+            command.pre_exec(|| {
+                nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(process::id() as i32))
+                    .unwrap();
+                return Ok(());
+            });
+        }
 
         let mut child = command.spawn().expect("Could not execute command");
 
@@ -173,7 +184,8 @@ fn safe_kill(pid_ref: &Arc<Mutex<Option<i32>>>) {
 
     match *pid {
         None => eprintln!("<runar> Error: no pid to kill!"),
-        Some(pid) => match kill(Pid::from_raw(pid), SIGTERM) {
+        // Killing -pid means kill pgrp with that id, see man 2 kill
+        Some(pid) => match kill(Pid::from_raw(-pid), SIGTERM) {
             Ok(_) => (),
             Err(e) => eprintln!("<runar> Kill got error: {}", e),
         },

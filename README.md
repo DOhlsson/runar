@@ -1,5 +1,5 @@
 # runar
-Watches for changes in files and runs/restarts a program. A resource-efficient replacement for nodemon
+Watches for changes in files and RUNs And Restarts a program. A resource-efficient replacement for nodemon
 
 # Goals
 To have a binary that is container friendly, dependency-free and of small size
@@ -20,12 +20,11 @@ To have a binary that is container friendly, dependency-free and of small size
 * trap sigchld instead of waiting for child process?
 
 ### bugs
-* some weird sigterm bug
-* kill attempts to kill killed process and if change happens while process is restarting
+* kill attempts to kill killed process if change happens while process is restarting
 
 ### optimization
 * use different cli library, clap is too bloated
-* use libc? =P
+* use libc directly?
 * analyze binarys sections for size hogs
 
 # Size Milestones

@@ -17,6 +17,7 @@ nix = "0.19"
 inotify = "0.9"
 clap = "2.33"
 walkdir = "2.3"
+libc = "0.2"
 
 [dev-dependencies]
 assert_cli = "0.5"

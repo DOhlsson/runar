@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use nix::sys::signal::{kill, SIGTERM};
+use nix::errno::Errno;
+use nix::sys::signal::{kill, SIGKILL, SIGTERM};
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 
 use inotify::{Inotify, WatchMask};
@@ -13,6 +15,8 @@ use inotify::{Inotify, WatchMask};
 use clap::{App, Arg};
 
 use walkdir::WalkDir;
+
+use libc::{prctl, PR_SET_CHILD_SUBREAPER};
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &'static str = env!("CARGO_PKG_AUTHORS");
@@ -83,6 +87,11 @@ fn main() {
             .collect(),
     );
 
+    unsafe {
+        // Become a Sub Reaper, taking on the responsibiliy of orphaned processess
+        prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
+    }
+
     if opt_verbose {
         println!("<runar> started with pid {}", process::id());
     }
@@ -115,6 +124,7 @@ fn main() {
         drop(pid);
 
         // wait for child process to exit
+        // TODO this wait is too weak, we need to waitpid for pgrp instead
         let exitstatus = child.wait().expect("could not wait");
 
         if opt_verbose {
@@ -130,7 +140,7 @@ fn main() {
         }
 
         // sleep here to avoid loop becoming incredibly spammy
-        thread::sleep(Duration::from_millis(1000));
+        thread::sleep(Duration::from_millis(1_000));
     }
 }
 
@@ -175,7 +185,7 @@ fn spawn_inotify_thread(
 
             // sleep and then clear the event queue by doing a non-blocking read
             // prevents us from restarting multiple times because of burst changes
-            thread::sleep(Duration::from_millis(2000));
+            thread::sleep(Duration::from_millis(1_000));
             inotify
                 .read_events(&mut buffer)
                 .expect("Could not read events");
@@ -186,12 +196,41 @@ fn spawn_inotify_thread(
 fn safe_kill(pid_ref: &Arc<Mutex<Option<i32>>>) {
     let pid = pid_ref.lock().unwrap();
 
-    match *pid {
-        None => eprintln!("<runar> Error: no pid to kill!"),
-        // Killing -pid means kill pgrp with that id, see man 2 kill
-        Some(pid) => match kill(Pid::from_raw(-pid), SIGTERM) {
-            Ok(_) => (),
-            Err(e) => eprintln!("<runar> Kill got error: {}", e),
-        },
+    let pgrp = match *pid {
+        None => {
+            eprintln!("<runar> Error: no pid to kill!");
+            return;
+        }
+        // The negative pid means that it is a pgrp instead
+        Some(pid) => Pid::from_raw(-pid),
+    };
+
+    let kill_res = kill(pgrp, SIGTERM);
+
+    if let Err(e) = kill_res {
+        eprintln!("<runar> Kill got error: {}", e);
+        return;
+    }
+
+    thread::sleep(Duration::from_millis(10_000)); // TODO make configurable
+
+    // We want the first round of reaping to be non-blocking so that kill actually gets called
+    let mut waitflag = Some(WaitPidFlag::WNOHANG);
+
+    // We need to reap all the children
+    loop {
+        match waitpid(pgrp, waitflag) {
+            Ok(WaitStatus::StillAlive) => {
+                println!("<runar> Some children took too long to exit, will now get SIGKILLed");
+                kill(pgrp, SIGKILL).unwrap();
+            }
+            Ok(_) => (),                                  // Reaped succesfully
+            Err(nix::Error::Sys(Errno::ECHILD)) => break, // No more children to reap
+            Err(e) => {
+                eprintln!("<runar> Unexpected error while reaping {}", e);
+                break;
+            }
+        }
+        waitflag = None; // Unset waitflag so that next waitpid becomes blocking
     }
 }

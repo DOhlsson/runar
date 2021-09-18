@@ -444,6 +444,7 @@ dependencies = [
  "assert_cli",
  "clap",
  "inotify",
+ "libc",
  "nix",
  "walkdir",
 ]

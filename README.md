@@ -2,18 +2,19 @@
 Watches for changes in files and RUNs And Restarts a program. A resource-efficient replacement for nodemon
 
 # Goals
-To have a binary that is container friendly, dependency-free and of small size
+To have a binary that is container friendly, dependency-free and small
 
 # TODO
 
 ### features
-* more tests
-* trap sigterm & sigint and send it to prog
-* timer sigterm -> sigkill
 * exclude files
+* timer sigterm -> sigkill
+  * flag
+* more tests
+* dig deeper into signalfd and epoll
+* trap sigterm & sigint and send it to prog
 * better logging function
 * handle stdin
-* more cli options
 * multi restart backoff
 * minirunar more like a  C program, to get real small
 * improve config handling, moving opt\_files looks weird

@@ -1,35 +1,26 @@
 # runar
 Watches for changes in files and RUNs And Restarts a program. A resource-efficient replacement for nodemon
 
-# Goals
-To have a binary that is container friendly, dependency-free and small
+Quick links:
+* [Installation](#installation)
+* [How to use](#how-to-use)
+* [Troubleshooting](#troubleshooting)
+* [Size milestones](#size-milestones)
 
-# TODO
+# Features
+* A binary that is container friendly, dependency-free and small
+TODO
 
-### features
-* exclude files
-* timer sigterm -> sigkill
-  * flag
-* more tests
-* dig deeper into signalfd and epoll
-* trap sigterm & sigint and send it to prog
-* better logging function
-* handle stdin
-* multi restart backoff
-* minirunar more like a  C program, to get real small
-* improve config handling, moving opt\_files looks weird
-* trap sigchld instead of waiting for child process?
+# Installation
+TODO
 
-### bugs
-* runar is too eager to start new process. it should wait until all children have exited
-* kill attempts to kill killed process if change happens while process is restarting
+# How to use
+TODO
 
-### optimization
-* use different cli library, clap is too bloated
-* use libc directly?
-* analyze binarys sections for size hogs
+# Troubleshooting
+TODO
 
-# Size Milestones
+# Size milestones
 - vim 3.1MB
 - bash 1.2MB
 - xterm 832KB

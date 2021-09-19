@@ -18,9 +18,9 @@ use walkdir::WalkDir;
 
 use libc::{prctl, PR_SET_CHILD_SUBREAPER};
 
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-const AUTHORS: &'static str = env!("CARGO_PKG_AUTHORS");
-const DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
+const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 
 fn main() {
     let matches = App::new("runar")
@@ -112,7 +112,7 @@ fn main() {
             command.pre_exec(|| {
                 nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(process::id() as i32))
                     .unwrap();
-                return Ok(());
+                Ok(())
             });
         }
 

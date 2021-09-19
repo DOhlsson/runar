@@ -124,8 +124,9 @@ fn main() {
         drop(pid);
 
         // wait for child process to exit
-        // TODO this wait is too weak, we need to waitpid for pgrp instead
         let exitstatus = child.wait().expect("could not wait");
+
+        // TODO waitpid pgrp here?
 
         if opt_verbose {
             println!("<runar> child process exited with {}", exitstatus);

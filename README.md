@@ -21,6 +21,7 @@ To have a binary that is container friendly, dependency-free and small
 * trap sigchld instead of waiting for child process?
 
 ### bugs
+* runar is too eager to start new process. it should wait until all children have exited
 * kill attempts to kill killed process if change happens while process is restarting
 
 ### optimization

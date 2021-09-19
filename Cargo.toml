@@ -20,7 +20,7 @@ walkdir = "2.3"
 libc = "0.2"
 
 [dev-dependencies]
-assert_cli = "0.5"
+assert_cmd = "2.0"
 
 [profile.release]
 # strip = "symbols" # nightly only

@@ -1,27 +1,62 @@
-extern crate assert_cli;
+extern crate assert_cmd;
 
 mod integration {
-    use assert_cli::Assert;
+    use std::time::Duration;
+
+    use assert_cmd::Command;
 
     #[test]
     fn without_args_fails() {
-        Assert::main_binary()
-            .fails()
-            .unwrap();
+        let assert = Command::cargo_bin("runar").unwrap().assert();
+        assert.failure();
     }
 
     #[test]
     fn with_only_cmd_arg_fails() {
-        Assert::main_binary()
-            .with_args(&["sleep 2s"])
-            .fails()
-            .unwrap();
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["sleep 2s"])
+            .assert();
+        assert.failure();
     }
 
     #[test]
-    fn with_exit_flag() {
-        Assert::main_binary()
-            .with_args(&["-e", "sleep 1s", "."])
-            .unwrap();
+    fn exit_flag_with_success() {
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["-x", "sleep 0.1s", "."])
+            .timeout(Duration::from_millis(200))
+            .assert();
+        assert.success();
+    }
+
+    #[test]
+    fn exit_flag_with_error() {
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["-x", "sleep 0.1s; exit 1", "."])
+            .timeout(Duration::from_millis(200))
+            .assert();
+        assert.interrupted();
+    }
+
+    #[test]
+    fn exit_on_error_flag_with_success() {
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["-e", "sleep 0.1s", "."])
+            .timeout(Duration::from_millis(200))
+            .assert();
+        assert.interrupted();
+    }
+
+    #[test]
+    fn exit_on_error_flag_with_error() {
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["-e", "sleep 0.1s; exit 13", "."])
+            .timeout(Duration::from_millis(200))
+            .assert();
+        assert.code(13);
     }
 }

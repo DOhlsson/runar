@@ -8,6 +8,7 @@
 * dig deeper into signalfd and epoll
 * trap sigterm & sigint and send it to prog
   * second sig should force kill on children and exit
+* move opts into static
 * better logging function
 * handle stdin
 * multi restart backoff
@@ -17,6 +18,8 @@
 * build.rs, escargot and a example test binary
 * support alpine
 * have a great big think on how exit codes should be handled in all cases
+* manpage
+* cargo release
 
 ### bugs
 * runar is too eager to start new process. it should wait until all children have exited

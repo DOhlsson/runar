@@ -161,7 +161,7 @@ fn main() {
         }
 
         // sleep here to avoid loop becoming incredibly spammy
-        thread::sleep(Duration::from_millis(1_000));
+        thread::sleep(Duration::from_millis(100));
     }
 }
 

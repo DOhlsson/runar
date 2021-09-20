@@ -2,6 +2,9 @@ extern crate assert_cmd;
 
 mod integration {
     use std::time::Duration;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::thread;
 
     use assert_cmd::Command;
 
@@ -13,10 +16,7 @@ mod integration {
 
     #[test]
     fn with_only_cmd_arg_fails() {
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args(["sleep 2s"])
-            .assert();
+        let assert = Command::cargo_bin("runar").unwrap().args(["foo"]).assert();
         assert.failure();
     }
 
@@ -58,5 +58,25 @@ mod integration {
             .timeout(Duration::from_millis(200))
             .assert();
         assert.code(13);
+    }
+
+    // won't pass until interrupts are fixed
+    #[test]
+    fn file_watch() {
+        thread::spawn(|| {
+            thread::sleep(Duration::from_millis(50));
+            println!("höh threads");
+            let mut file = File::create("./tests/data/file1").unwrap();
+            file.write_all(&[0u8; 0]).unwrap();
+            //file.write_all(b"Hello, world!").unwrap();
+            file.flush().unwrap();
+        });
+
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["echo start; sleep 1s; echo end", "tests/data/file1"])
+            .timeout(Duration::from_millis(200))
+            .assert();
+        assert.stdout("start\nstart\nend\n");
     }
 }

@@ -79,28 +79,47 @@ fn main() {
     let opt_x_on_err = matches.is_present("exit-on-error");
     let opt_exit = matches.is_present("exit");
     let opt_command = matches.value_of("command").unwrap();
-    let opt_files: Arc<Vec<String>> = Arc::new(
-        matches
-            .values_of("files")
-            .unwrap()
-            .map(String::from)
-            .collect(),
-    );
-
-    unsafe {
-        // Become a Sub Reaper, taking on the responsibiliy of orphaned processess
-        prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
-    }
+    let opt_files = matches.values_of("files").unwrap();
 
     if opt_verbose {
         println!("<runar> started with pid {}", process::id());
+    }
+
+    // Set up Inotify instance
+    let mut inotify = Inotify::init().expect("Error while initializing inotify instance");
+    for file in opt_files {
+        if opt_recursive {
+            for entry in WalkDir::new(file).into_iter() {
+                let path = entry.unwrap().into_path();
+                inotify
+                    .add_watch(path, WatchMask::MODIFY)
+                    .expect("Could not add watch");
+            }
+        } else {
+            match inotify.add_watch(&file, WatchMask::MODIFY) {
+                Ok(_) => (),
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        eprintln!("<runar> No such file or directory: {}", file);
+                    } else {
+                        eprintln!("<runar> Unexpected inotify error {}", e);
+                    }
+                    process::exit(1);
+                }
+            }
+        }
     }
 
     // mutex with child process pid
     let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
 
     // spawn the inotify handling thread with a clone of the reference to pid
-    spawn_inotify_thread(pid_ref.clone(), opt_verbose, opt_recursive, opt_files);
+    spawn_inotify_thread(pid_ref.clone(), opt_verbose, inotify);
+
+    unsafe {
+        // Become a Sub Reaper, taking on the responsibiliy of orphaned processess
+        prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
+    }
 
     loop {
         let mut command = Command::new("sh");
@@ -149,37 +168,9 @@ fn main() {
 fn spawn_inotify_thread(
     pid_ref: Arc<Mutex<Option<i32>>>,
     opt_verbose: bool,
-    opt_recursive: bool,
-    opt_files: Arc<Vec<String>>,
+    mut inotify: Inotify,
 ) {
     std::thread::spawn(move || {
-        let mut inotify = Inotify::init().expect("Error while initializing inotify instance");
-
-        // TODO can all this be moved to start of main?
-        for i in 0..opt_files.len() {
-            let target = opt_files[i].clone();
-            if opt_recursive {
-                for entry in WalkDir::new(target).into_iter() {
-                    let path = entry.unwrap().into_path();
-                    inotify
-                        .add_watch(path, WatchMask::MODIFY)
-                        .expect("Could not add watch");
-                }
-            } else {
-                match inotify.add_watch(&target, WatchMask::MODIFY) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        if e.kind() == std::io::ErrorKind::NotFound {
-                            eprintln!("<runar> No such file or directory: {}", target);
-                        } else {
-                            eprintln!("<runar> Unexpected inotify error {}", e);
-                        }
-                        process::exit(1);
-                    }
-                }
-            }
-        }
-
         loop {
             let mut buffer = [0; 1024]; // buffer to store inotify events
 

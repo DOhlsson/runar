@@ -97,7 +97,7 @@ fn main() {
                         if e.kind() == std::io::ErrorKind::NotFound {
                             eprintln!("<runar> No such file or directory: {}", file);
                         } else {
-                            eprintln!("<runar> Unexpected inotify error {}", e);
+                            eprintln!("<runar> Unexpected walkdir error {}", e);
                         }
                         process::exit(1);
                     }
@@ -149,18 +149,30 @@ fn main() {
             });
         }
 
-        // TODO Should not be allowed to spawn before inotify thread is done
+        // TODO Should not be allowed to spawn before inotify thread is done, use mutex for this?
         let mut child = command.spawn().expect("Could not execute command");
+        let child_pid = child.id() as i32;
+        let pgrp = Pid::from_raw(-child_pid);
 
         // grab the mutex lock, set pid and then drop the lock to release it
         let mut pid = pid_ref.lock().unwrap();
-        *pid = Some(child.id() as i32);
+        *pid = Some(child_pid);
         drop(pid);
 
         // wait for child process to exit
         let exitstatus = child.wait().expect("could not wait");
 
-        // TODO waitpid pgrp here?
+        // We need to reap all the children
+        loop {
+            match waitpid(pgrp, None) {
+                Ok(_) => (),                                  // Reaped succesfully
+                Err(nix::Error::Sys(Errno::ECHILD)) => break, // No more children to reap
+                Err(e) => {
+                    eprintln!("<runar> Unexpected error while reaping {}", e);
+                    break;
+                }
+            }
+        }
 
         if opt_verbose {
             println!("<runar> child process exited with {}", exitstatus);
@@ -224,25 +236,14 @@ fn safe_kill(pid_ref: &Arc<Mutex<Option<i32>>>) {
         return;
     }
 
-    thread::sleep(Duration::from_millis(10_000)); // TODO make configurable
+    thread::sleep(Duration::from_millis(5_000)); // TODO make configurable
 
-    // We want the first round of reaping to be non-blocking so that kill actually gets called
-    let mut waitflag = Some(WaitPidFlag::WNOHANG);
-
-    // We need to reap all the children
-    loop {
-        match waitpid(pgrp, waitflag) {
-            Ok(WaitStatus::StillAlive) => {
-                println!("<runar> Some children took too long to exit, will now get SIGKILLed");
-                kill(pgrp, SIGKILL).unwrap();
-            }
-            Ok(_) => (),                                  // Reaped succesfully
-            Err(nix::Error::Sys(Errno::ECHILD)) => break, // No more children to reap
-            Err(e) => {
-                eprintln!("<runar> Unexpected error while reaping {}", e);
-                break;
-            }
+    match waitpid(pgrp, Some(WaitPidFlag::WNOHANG)) {
+        Ok(WaitStatus::StillAlive) => {
+            // TODO if opt_verbose
+            println!("<runar> Some children took too long to exit, will now get SIGKILLed");
+            kill(pgrp, SIGKILL).unwrap();
         }
-        waitflag = None; // Unset waitflag so that next waitpid becomes blocking
+        _ => (),
     }
 }

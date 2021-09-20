@@ -116,6 +116,7 @@ fn main() {
             });
         }
 
+        // TODO Should not be allowed to spawn before inotify thread is done
         let mut child = command.spawn().expect("Could not execute command");
 
         // grab the mutex lock, set pid and then drop the lock to release it
@@ -154,6 +155,7 @@ fn spawn_inotify_thread(
     std::thread::spawn(move || {
         let mut inotify = Inotify::init().expect("Error while initializing inotify instance");
 
+        // TODO can all this be moved to start of main?
         for i in 0..opt_files.len() {
             let target = opt_files[i].clone();
             if opt_recursive {
@@ -164,9 +166,17 @@ fn spawn_inotify_thread(
                         .expect("Could not add watch");
                 }
             } else {
-                inotify
-                    .add_watch(target, WatchMask::MODIFY)
-                    .expect("Could not add watch");
+                match inotify.add_watch(&target, WatchMask::MODIFY) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            eprintln!("<runar> No such file or directory: {}", target);
+                        } else {
+                            eprintln!("<runar> Unexpected inotify error {}", e);
+                        }
+                        process::exit(1);
+                    }
+                }
             }
         }
 

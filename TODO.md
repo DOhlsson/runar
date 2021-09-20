@@ -26,3 +26,4 @@
 * use different cli library, clap is too bloated
 * use libc directly?
 * analyze binarys sections for size hogs
+* use nix's inotify

@@ -90,7 +90,20 @@ fn main() {
     for file in opt_files {
         if opt_recursive {
             for entry in WalkDir::new(file).into_iter() {
-                let path = entry.unwrap().into_path();
+                let path = match entry {
+                    Err(e) => {
+                        let e = e.io_error().unwrap();
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            eprintln!("<runar> No such file or directory: {}", file);
+                        } else {
+                            eprintln!("<runar> Unexpected inotify error {}", e);
+                        }
+                        process::exit(1);
+                    },
+                    Ok(entry) => entry.into_path(),
+                };
+
+                // TODO generalize error handling for inotify
                 inotify
                     .add_watch(path, WatchMask::MODIFY)
                     .expect("Could not add watch");

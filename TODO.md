@@ -9,6 +9,7 @@
 * trap sigterm & sigint and send it to prog
   * second sig should force kill on children and exit
 * move opts into static
+* handle/detect loops in fs
 * better logging function
 * handle stdin
 * multi restart backoff

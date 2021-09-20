@@ -89,6 +89,7 @@ fn main() {
     let mut inotify = Inotify::init().expect("Error while initializing inotify instance");
     for file in opt_files {
         if opt_recursive {
+            // TODO could we do some iterator magic here?
             for entry in WalkDir::new(file).into_iter() {
                 let path = match entry {
                     Err(e) => {
@@ -99,7 +100,7 @@ fn main() {
                             eprintln!("<runar> Unexpected inotify error {}", e);
                         }
                         process::exit(1);
-                    },
+                    }
                     Ok(entry) => entry.into_path(),
                 };
 
@@ -178,11 +179,7 @@ fn main() {
     }
 }
 
-fn spawn_inotify_thread(
-    pid_ref: Arc<Mutex<Option<i32>>>,
-    opt_verbose: bool,
-    mut inotify: Inotify,
-) {
+fn spawn_inotify_thread(pid_ref: Arc<Mutex<Option<i32>>>, opt_verbose: bool, mut inotify: Inotify) {
     std::thread::spawn(move || {
         loop {
             let mut buffer = [0; 1024]; // buffer to store inotify events

@@ -13,7 +13,7 @@ license = "GPL-3.0-or-later"
 edition = "2018"
 
 [dependencies]
-nix = "0.19"
+nix = "0.22"
 inotify = "0.9"
 clap = "2.33"
 walkdir = "2.3"

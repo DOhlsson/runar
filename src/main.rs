@@ -178,8 +178,8 @@ fn main() {
         // We need to reap all the children
         loop {
             match waitpid(pgrp, None) {
-                Ok(_) => (),                                  // Reaped succesfully
-                Err(nix::Error::Sys(Errno::ECHILD)) => break, // No more children to reap
+                Ok(_) => (),                 // Reaped succesfully
+                Err(Errno::ECHILD) => break, // No more children to reap
                 Err(e) => {
                     eprintln!("<runar> Unexpected error while reaping {}", e);
                     break;
@@ -267,13 +267,10 @@ fn safe_kill(pid_ref: &Arc<Mutex<Option<i32>>>, opt_verbose: bool, opt_kill_time
 
     // If any process in the process group is still alive, we kill the entire group
     // This is so that we clean up any orphaned grandchildren that are still alive
-    match waitpid(pgrp, Some(WaitPidFlag::WNOHANG)) {
-        Ok(WaitStatus::StillAlive) => {
-            if opt_verbose {
-                println!("<runar> Some children took too long to exit, will now get SIGKILLed");
-            }
-            kill(pgrp, SIGKILL).unwrap();
+    if let Ok(WaitStatus::StillAlive) = waitpid(pgrp, Some(WaitPidFlag::WNOHANG)) {
+        if opt_verbose {
+            println!("<runar> Some children took too long to exit, will now get SIGKILLed");
         }
-        _ => (),
+        kill(pgrp, SIGKILL).unwrap();
     }
 }

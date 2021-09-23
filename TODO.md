@@ -2,8 +2,6 @@
 
 ### features
 * exclude files
-* timer sigterm -> sigkill
-  * flag
 * more tests
 * dig deeper into signalfd and epoll
 * trap sigterm & sigint and send it to prog
@@ -23,8 +21,7 @@
 * cargo release
 
 ### bugs
-* runar is too eager to start new process. it should wait until all children have exited
-* kill attempts to kill killed process if change happens while process is restarting
+* kill attempts to kill dead process if change happens while process is restarting
 
 ### optimization
 * use different cli library, clap is too bloated

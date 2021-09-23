@@ -139,12 +139,11 @@ fn main() {
     // spawn the inotify handling thread with a clone of the reference to pid
     spawn_inotify_thread(pid_ref.clone(), inotify, opt_verbose, opt_kill_timer);
 
-    //*
     unsafe {
         // Become a Sub Reaper, taking on the responsibiliy of orphaned processess
         prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
     }
-    // */
+
     loop {
         let mut command = Command::new("sh");
         command.args(&["-c", opt_command]);

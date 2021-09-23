@@ -125,4 +125,21 @@ mod integration {
             .assert();
         assert.code(1);
     }
+
+    #[test]
+    fn uninterruptible_cmd() {
+        thread::spawn(|| {
+            thread::sleep(Duration::from_millis(50));
+            let mut file = File::create("./tests/data/file1").unwrap();
+            file.write_all(&[0u8; 0]).unwrap();
+            file.flush().unwrap();
+        });
+
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["-k", "10", "./utility/script.sh -t -s 1", "tests/data/file1"])
+            .timeout(Duration::from_millis(200))
+            .assert();
+        assert.stdout("start\nstart\nend\n");
+    }
 }

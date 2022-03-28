@@ -9,6 +9,7 @@ use nix::errno::Errno;
 use nix::sys::signal::{kill, SIGKILL, SIGTERM};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
+use nix::sys::prctl;
 
 use inotify::{Inotify, WatchMask};
 
@@ -16,7 +17,7 @@ use clap::{value_t, App, Arg};
 
 use walkdir::WalkDir;
 
-use libc::{prctl, PR_SET_CHILD_SUBREAPER};
+// use libc::{prctl, PR_SET_CHILD_SUBREAPER};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
@@ -139,10 +140,8 @@ fn main() {
     // spawn the inotify handling thread with a clone of the reference to pid
     spawn_inotify_thread(pid_ref.clone(), inotify, opt_verbose, opt_kill_timer);
 
-    unsafe {
-        // Become a Sub Reaper, taking on the responsibiliy of orphaned processess
-        prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
-    }
+    // Become a subreaper, taking on the responsibiliy of handling orphaned processess
+    prctl::set_child_subreaper(true).unwrap();
 
     loop {
         let mut command = Command::new("sh");

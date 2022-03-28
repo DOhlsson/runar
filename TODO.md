@@ -3,6 +3,8 @@
 ### features
 * exclude files
 * more tests
+  * try to replicate kill of dead process
+  * test for when process exits cleanly shortly after SIGTERM
 * dig deeper into signalfd and epoll
 * trap sigterm & sigint and send it to prog
   * second sig should force kill on children and exit
@@ -19,6 +21,7 @@
 * have a great big think on how exit codes should be handled in all cases
 * manpage
 * cargo release
+* replace walkdir with syscall?
 
 ### bugs
 * kill attempts to kill dead process if change happens while process is restarting

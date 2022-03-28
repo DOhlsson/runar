@@ -10,10 +10,11 @@ readme = "README.md"
 keywords = ["run", "restart", "watch", "nodemon"]
 categories = ["command-line-utilities"]
 license = "GPL-3.0-or-later"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-nix = "0.22"
+# nix = "0.23"
+nix = { git = "https://github.com/DOhlsson/nix", branch = "prctl" }
 inotify = "0.9"
 clap = "2.33"
 walkdir = "2.3"
@@ -23,7 +24,7 @@ libc = "0.2"
 assert_cmd = "2.0"
 
 [profile.release]
-# strip = "symbols" # nightly only
+strip = "symbols"
 opt-level = "z"
 lto = "fat"
 codegen-units = 1

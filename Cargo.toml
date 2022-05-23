@@ -11,9 +11,13 @@ keywords = ["run", "restart", "watch", "nodemon"]
 categories = ["command-line-utilities"]
 license = "GPL-3.0-or-later"
 edition = "2021"
+default-run = "runar"
+
+[features]
+runartest = []
 
 [dependencies]
-# nix = "0.23"
+# nix = "0.24"
 nix = { git = "https://github.com/DOhlsson/nix", branch = "prctl" }
 inotify = "0.9"
 clap = "2.33"
@@ -22,6 +26,7 @@ libc = "0.2"
 
 [dev-dependencies]
 assert_cmd = "2.0"
+test-binary = "1.0"
 
 [profile.release]
 strip = "symbols"
@@ -29,3 +34,7 @@ opt-level = "z"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+[[bin]]
+name = "runartest"
+required-features = ["runartest"]

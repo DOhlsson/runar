@@ -6,10 +6,10 @@ use std::thread;
 use std::time::Duration;
 
 use nix::errno::Errno;
+use nix::sys::prctl;
 use nix::sys::signal::{kill, SIGKILL, SIGTERM};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
-use nix::sys::prctl;
 
 use inotify::{Inotify, WatchMask};
 

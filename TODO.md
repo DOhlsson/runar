@@ -1,6 +1,8 @@
 # TODO
 
 ### features
+* handle runar getting SIGTERM
+* rerun on change
 * exclude files
 * more tests
   * try to replicate kill of dead process

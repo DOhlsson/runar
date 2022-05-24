@@ -169,7 +169,30 @@ mod integration {
             .timeout(Duration::from_millis(500))
             .assert();
 
-        // end is actually incorrect here, but runar does not properly handle SIGTERM
+        // end is actually incorrect here, but runar does not properly handle SIGTERM (yet)
+        assert.stdout("start\nstart\nend\n");
+    }
+
+    #[test]
+    fn multiple_writes() {
+        thread::spawn(|| {
+            thread::sleep(Duration::from_millis(200));
+            let mut file = File::create("./tests/data/file1").unwrap();
+            file.write_all(&[65, 10]).unwrap();
+            file.flush().unwrap();
+
+            thread::sleep(Duration::from_millis(100));
+            let mut file2 = File::create("./tests/data/file2").unwrap();
+            file2.write_all(&[66, 10]).unwrap();
+            file2.flush().unwrap();
+        });
+
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["-r", &testprog("sleep"), "tests/data/"])
+            .timeout(Duration::from_millis(500))
+            .assert();
+
         assert.stdout("start\nstart\nend\n");
     }
 }

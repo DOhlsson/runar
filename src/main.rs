@@ -6,12 +6,11 @@ use std::thread;
 use std::time::Duration;
 
 use nix::errno::Errno;
+use nix::sys::inotify::{AddWatchFlags, InitFlags, Inotify};
 use nix::sys::prctl;
 use nix::sys::signal::{kill, SIGKILL, SIGTERM};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
-
-use inotify::{Inotify, WatchMask};
 
 use clap::{value_t, App, Arg};
 
@@ -96,7 +95,8 @@ fn main() {
     }
 
     // Set up Inotify instance
-    let mut inotify = Inotify::init().expect("Error while initializing inotify instance");
+    let inotify =
+        Inotify::init(InitFlags::IN_CLOEXEC).expect("Error while initializing inotify instance");
     for file in opt_files {
         if opt_recursive {
             // TODO could we do some iterator magic here?
@@ -116,18 +116,18 @@ fn main() {
 
                 // TODO generalize error handling for inotify
                 inotify
-                    .add_watch(path, WatchMask::MODIFY)
+                    .add_watch(&path, AddWatchFlags::IN_MODIFY)
                     .expect("Could not add watch");
             }
         } else {
-            match inotify.add_watch(&file, WatchMask::MODIFY) {
+            match inotify.add_watch(file, AddWatchFlags::IN_MODIFY) {
                 Ok(_) => (),
+                Err(Errno::ENOENT) => {
+                    eprintln!("<runar> No such file or directory: {}", file);
+                    process::exit(1);
+                }
                 Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        eprintln!("<runar> No such file or directory: {}", file);
-                    } else {
-                        eprintln!("<runar> Unexpected inotify error {}", e);
-                    }
+                    eprintln!("<runar> Unexpected inotify error {}", e);
                     process::exit(1);
                 }
             }
@@ -211,31 +211,26 @@ fn main() {
 
 fn spawn_inotify_thread(
     pid_ref: Arc<Mutex<Option<i32>>>,
-    mut inotify: Inotify,
+    inotify: Inotify,
     opt_verbose: bool,
     opt_kill_timer: u64,
 ) {
     std::thread::spawn(move || {
         loop {
-            let mut buffer = [0; 1024]; // buffer to store inotify events
-
-            inotify
-                .read_events_blocking(&mut buffer)
-                .expect("Error while reading events");
+            let events = inotify.read_events().expect("Error while reading events");
 
             if opt_verbose {
+                let names: String = events
+                    .into_iter()
+                    .filter(|ev| ev.name.is_some())
+                    .take(10)
+                    .map(|ev| ev.name.unwrap().into_string().unwrap())
+                    .collect();
                 // TODO list which files
-                println!("<runar> files modified");
+                println!("<runar> files modified: {}", names);
             }
 
             safe_kill(&pid_ref, opt_verbose, opt_kill_timer);
-
-            // sleep and then clear the event queue by doing a non-blocking read
-            // prevents us from restarting multiple times because of burst changes
-            thread::sleep(Duration::from_millis(1_000));
-            inotify
-                .read_events(&mut buffer)
-                .expect("Could not read events");
         }
     });
 }

@@ -19,7 +19,6 @@ runartest = []
 [dependencies]
 # nix = "0.24"
 nix = { git = "https://github.com/DOhlsson/nix", branch = "prctl" }
-inotify = "0.9"
 clap = "2.33"
 walkdir = "2.3"
 libc = "0.2"

@@ -26,7 +26,7 @@ TODO
 - xterm 832KB
 - ssh 780KB
 - busybox 700KB
-- **runar 620KB**
+- **runar 616KB**
 - tar 520KB
 - nano 344KB
 - find 304KB

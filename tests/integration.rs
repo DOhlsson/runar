@@ -141,6 +141,14 @@ mod integration {
             .assert();
 
         assert.code(1);
+
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args([&testprog("success"), ".", "tests/data/does_not_exist"])
+            .timeout(Duration::from_millis(200))
+            .assert();
+
+        assert.code(1);
     }
 
     #[test]

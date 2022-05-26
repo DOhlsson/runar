@@ -1,3 +1,6 @@
+mod parse_args;
+
+use std::ffi::OsStr;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process;
 use std::process::Command;
@@ -12,116 +15,60 @@ use nix::sys::signal::{kill, SIGKILL, SIGTERM};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 
-use clap::{value_t, App, Arg};
-
 use walkdir::WalkDir;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
-const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
+use parse_args::parse_args;
 
 fn main() {
-    let matches = App::new("runar")
-        .version(VERSION)
-        .author(AUTHORS)
-        .about(DESCRIPTION)
-        .arg(
-            Arg::with_name("recursive")
-                .help("recursively watch directories")
-                .short("r")
-                .long("recursive")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("verbose")
-                .help("increases the level of verbosity")
-                .short("v")
-                .long("verbose")
-                .multiple(false)
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("exit-on-error")
-                .help("exits with the same status code as COMMAND")
-                .short("e")
-                .long("exit-on-error")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("exit")
-                .help("exit when COMMAND returns zero")
-                .short("x")
-                .long("exit")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("kill-timer")
-                .help("time in milliseconds until kill signal is sent")
-                .short("k")
-                .long("kill-timer")
-                .takes_value(true)
-                .default_value("5000"),
-        )
-        .arg(
-            Arg::with_name("command")
-                .help("the COMMAND to execute")
-                .required(true)
-                .value_name("COMMAND")
-                .index(1),
-        )
-        .arg(
-            Arg::with_name("files")
-                .help("the file(s) to watch")
-                .required(true)
-                .value_name("FILE")
-                .index(2)
-                .multiple(true)
-                .takes_value(true),
-        )
-        .get_matches();
+    let opts = parse_args();
+    if opts.is_none() {
+        return;
+    }
 
-    let opt_verbose = matches.is_present("verbose");
-    let opt_recursive = matches.is_present("recursive");
-    let opt_x_on_err = matches.is_present("exit-on-error");
-    let opt_exit = matches.is_present("exit");
-    let opt_kill_timer: u64 = value_t!(matches.value_of("kill-timer"), u64).unwrap();
-    let opt_command = matches.value_of("command").unwrap();
-    let opt_files = matches.values_of("files").unwrap();
+    let opts = opts.unwrap();
 
-    if opt_verbose {
+    if opts.verbose {
         println!("<runar> started with pid {}", process::id());
     }
 
     // Set up Inotify instance
     let inotify =
         Inotify::init(InitFlags::IN_CLOEXEC).expect("Error while initializing inotify instance");
-    for file in opt_files {
-        if opt_recursive {
+    for file in opts.files {
+        if opts.recursive {
             // TODO could we do some iterator magic here?
-            for entry in WalkDir::new(file).into_iter() {
-                let path = match entry {
+            for entry in WalkDir::new(&file).into_iter() {
+                match entry {
                     Err(e) => {
                         let e = e.io_error().unwrap();
                         if e.kind() == std::io::ErrorKind::NotFound {
-                            eprintln!("<runar> No such file or directory: {}", file);
+                            eprintln!(
+                                "<runar> No such file or directory: {}",
+                                file.into_string().unwrap()
+                            );
+                            process::exit(1);
                         } else {
                             eprintln!("<runar> Unexpected walkdir error {}", e);
                         }
-                        process::exit(1);
                     }
-                    Ok(entry) => entry.into_path(),
-                };
+                    Ok(entry) => {
+                        let path = entry.into_path();
 
-                // TODO generalize error handling for inotify
-                inotify
-                    .add_watch(&path, AddWatchFlags::IN_MODIFY)
-                    .expect("Could not add watch");
+                        // TODO generalize error handling for inotify
+                        inotify
+                            .add_watch(&path, AddWatchFlags::IN_MODIFY)
+                            .expect("Could not add watch");
+                    }
+                };
             }
         } else {
-            match inotify.add_watch(file, AddWatchFlags::IN_MODIFY) {
+            match inotify.add_watch(file.as_os_str(), AddWatchFlags::IN_MODIFY) {
                 Ok(_) => (),
                 Err(Errno::ENOENT) => {
-                    eprintln!("<runar> No such file or directory: {}", file);
+                    eprintln!(
+                        "<runar> No such file or directory: {}",
+                        file.into_string().unwrap()
+                    );
                     process::exit(1);
                 }
                 Err(e) => {
@@ -136,14 +83,14 @@ fn main() {
     let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
 
     // spawn the inotify handling thread with a clone of the reference to pid
-    spawn_inotify_thread(pid_ref.clone(), inotify, opt_verbose, opt_kill_timer);
+    spawn_inotify_thread(pid_ref.clone(), inotify, opts.verbose, opts.kill_timer);
 
     // Become a subreaper, taking on the responsibiliy of handling orphaned processess
     prctl::set_child_subreaper(true).unwrap();
 
     loop {
         let mut command = Command::new("sh");
-        command.args(&["-c", opt_command]);
+        command.args(&[OsStr::new("-c"), opts.command.as_os_str()]);
 
         // the child process needs to set a process group so that we can kill it later
         // there is a groups() function in nightly that could be used once it's stabilized
@@ -160,7 +107,7 @@ fn main() {
         let child_pid = child.id() as i32;
         let pgrp = Pid::from_raw(-child_pid);
 
-        if opt_verbose {
+        if opts.verbose {
             println!("<runar> child process spawned with pid {}", child_pid);
         }
 
@@ -184,11 +131,11 @@ fn main() {
             }
         }
 
-        if opt_verbose {
+        if opts.verbose {
             println!("<runar> child process exited with {}", exitstatus);
         }
 
-        if opt_x_on_err && !exitstatus.success() {
+        if opts.error && !exitstatus.success() {
             if let Some(code) = exitstatus.code() {
                 process::exit(code);
             }
@@ -198,7 +145,7 @@ fn main() {
             process::exit(1);
         }
 
-        if opt_exit && exitstatus.success() {
+        if opts.exit && exitstatus.success() {
             process::exit(0);
         }
 

@@ -19,7 +19,7 @@ runartest = []
 [dependencies]
 # nix = "0.24"
 nix = { git = "https://github.com/DOhlsson/nix", branch = "prctl" }
-clap = "2.33"
+pico-args = { version = "0.4", default-features = false }
 walkdir = "2.3"
 
 [dev-dependencies]

@@ -21,7 +21,6 @@ runartest = []
 nix = { git = "https://github.com/DOhlsson/nix", branch = "prctl" }
 clap = "2.33"
 walkdir = "2.3"
-libc = "0.2"
 
 [dev-dependencies]
 assert_cmd = "2.0"

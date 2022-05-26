@@ -16,8 +16,6 @@ use clap::{value_t, App, Arg};
 
 use walkdir::WalkDir;
 
-// use libc::{prctl, PR_SET_CHILD_SUBREAPER};
-
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
@@ -86,7 +84,7 @@ fn main() {
     let opt_recursive = matches.is_present("recursive");
     let opt_x_on_err = matches.is_present("exit-on-error");
     let opt_exit = matches.is_present("exit");
-    let opt_kill_timer: u64 = value_t!(matches.value_of("kill-timer"), u64).unwrap(); // _or(5_000);
+    let opt_kill_timer: u64 = value_t!(matches.value_of("kill-timer"), u64).unwrap();
     let opt_command = matches.value_of("command").unwrap();
     let opt_files = matches.values_of("files").unwrap();
 
@@ -215,23 +213,20 @@ fn spawn_inotify_thread(
     opt_verbose: bool,
     opt_kill_timer: u64,
 ) {
-    std::thread::spawn(move || {
-        loop {
-            let events = inotify.read_events().expect("Error while reading events");
+    std::thread::spawn(move || loop {
+        let events = inotify.read_events().expect("Error while reading events");
 
-            if opt_verbose {
-                let names: String = events
-                    .into_iter()
-                    .filter(|ev| ev.name.is_some())
-                    .take(10)
-                    .map(|ev| ev.name.unwrap().into_string().unwrap())
-                    .collect();
-                // TODO list which files
-                println!("<runar> files modified: {}", names);
-            }
-
-            safe_kill(&pid_ref, opt_verbose, opt_kill_timer);
+        if opt_verbose {
+            let names: String = events
+                .into_iter()
+                .filter(|ev| ev.name.is_some())
+                .take(10)
+                .map(|ev| ev.name.unwrap().into_string().unwrap())
+                .collect();
+            println!("<runar> files modified: {}", names);
         }
+
+        safe_kill(&pid_ref, opt_verbose, opt_kill_timer);
     });
 }
 

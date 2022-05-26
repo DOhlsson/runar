@@ -1,6 +1,6 @@
 mod parse_args;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process;
 use std::process::Command;
@@ -31,53 +31,7 @@ fn main() {
         println!("<runar> started with pid {}", process::id());
     }
 
-    // Set up Inotify instance
-    let inotify =
-        Inotify::init(InitFlags::IN_CLOEXEC).expect("Error while initializing inotify instance");
-    for file in opts.files {
-        if opts.recursive {
-            // TODO could we do some iterator magic here?
-            for entry in WalkDir::new(&file).into_iter() {
-                match entry {
-                    Err(e) => {
-                        let e = e.io_error().unwrap();
-                        if e.kind() == std::io::ErrorKind::NotFound {
-                            eprintln!(
-                                "<runar> No such file or directory: {}",
-                                file.into_string().unwrap()
-                            );
-                            process::exit(1);
-                        } else {
-                            eprintln!("<runar> Unexpected walkdir error {}", e);
-                        }
-                    }
-                    Ok(entry) => {
-                        let path = entry.into_path();
-
-                        // TODO generalize error handling for inotify
-                        inotify
-                            .add_watch(&path, AddWatchFlags::IN_MODIFY)
-                            .expect("Could not add watch");
-                    }
-                };
-            }
-        } else {
-            match inotify.add_watch(file.as_os_str(), AddWatchFlags::IN_MODIFY) {
-                Ok(_) => (),
-                Err(Errno::ENOENT) => {
-                    eprintln!(
-                        "<runar> No such file or directory: {}",
-                        file.into_string().unwrap()
-                    );
-                    process::exit(1);
-                }
-                Err(e) => {
-                    eprintln!("<runar> Unexpected inotify error {}", e);
-                    process::exit(1);
-                }
-            }
-        }
-    }
+    let inotify = setup_inotify(opts.files, opts.recursive);
 
     // mutex with child process pid
     let pid_ref: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
@@ -152,6 +106,59 @@ fn main() {
         // sleep here to avoid loop becoming incredibly spammy
         thread::sleep(Duration::from_millis(100));
     }
+}
+
+// Set up Inotify instance
+fn setup_inotify(files: Vec<OsString>, opt_recursive: bool) -> Inotify {
+    let inotify =
+        Inotify::init(InitFlags::IN_CLOEXEC).expect("Error while initializing inotify instance");
+
+    for file in files {
+        if opt_recursive {
+            // TODO could we do some iterator magic here?
+            for entry in WalkDir::new(&file).into_iter() {
+                match entry {
+                    Err(e) => {
+                        let e = e.io_error().unwrap();
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            eprintln!(
+                                "<runar> No such file or directory: {}",
+                                file.into_string().unwrap()
+                            );
+                            process::exit(1);
+                        } else {
+                            eprintln!("<runar> Unexpected walkdir error {}", e);
+                        }
+                    }
+                    Ok(entry) => {
+                        let path = entry.into_path();
+
+                        // TODO generalize error handling for inotify
+                        inotify
+                            .add_watch(&path, AddWatchFlags::IN_MODIFY)
+                            .expect("Could not add watch");
+                    }
+                };
+            }
+        } else {
+            match inotify.add_watch(file.as_os_str(), AddWatchFlags::IN_MODIFY) {
+                Ok(_) => (),
+                Err(Errno::ENOENT) => {
+                    eprintln!(
+                        "<runar> No such file or directory: {}",
+                        file.into_string().unwrap()
+                    );
+                    process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("<runar> Unexpected inotify error {}", e);
+                    process::exit(1);
+                }
+            }
+        }
+    }
+
+    inotify
 }
 
 fn spawn_inotify_thread(

@@ -7,6 +7,7 @@
 * more tests
   * try to replicate kill of dead process
   * test for when process exits cleanly shortly after SIGTERM
+  * runartest with child that changes pgrp
 * handle out of inotify instances
 * dig deeper into signalfd and epoll
 * trap sigterm & sigint and send it to prog

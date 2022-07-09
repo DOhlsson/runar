@@ -41,7 +41,6 @@ pub struct Options {
     pub files: Vec<OsString>,
 }
 
-// TODO extract to file
 pub fn parse_args() -> Option<Options> {
     let mut args = Arguments::from_env();
 
@@ -69,7 +68,7 @@ pub fn parse_args() -> Option<Options> {
         Ok(None) => 5000,
         Err(e) => {
             eprintln!("Error: {}", e);
-            return None;
+            process::exit(1);
         }
     };
 
@@ -77,6 +76,7 @@ pub fn parse_args() -> Option<Options> {
 
     if remaining.len() < 2 {
         eprintln!("Too few arguments");
+        println!("\n{}", HELP);
         process::exit(1);
     }
 

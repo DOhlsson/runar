@@ -1,5 +1,5 @@
 # runar
-Watches for changes in files and RUNs And Restarts a program. A resource-efficient replacement for nodemon
+Watches for changes in files and RUNs And Restarts a program. A resource-efficient replacement for nodemon.
 
 Quick links:
 * [Installation](#installation)
@@ -8,7 +8,7 @@ Quick links:
 * [Size milestones](#size-milestones)
 
 # Features
-* A binary that is container friendly, dependency-free and small
+* A binary that is container friendly, only depends on libc and is very small
 TODO
 
 # Installation

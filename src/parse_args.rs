@@ -1,4 +1,8 @@
-use std::{ffi::OsString, process};
+use std::ffi::OsString;
+use std::process::ExitCode;
+
+use nix::sys::signal;
+use nix::sys::signal::SigSet;
 
 use pico_args::Arguments;
 
@@ -36,17 +40,18 @@ pub struct Options {
     pub error: bool,
     pub recursive: bool,
     pub verbose: bool,
-    pub kill_timer: u64,
+    pub kill_timer: i32,
     pub command: OsString,
     pub files: Vec<OsString>,
+    pub sigmask: SigSet,
 }
 
-pub fn parse_args() -> Option<Options> {
+pub fn parse_args() -> Result<Options, ExitCode> {
     let mut args = Arguments::from_env();
 
     if args.contains(["-h", "--help"]) {
         println!("{}", HELP);
-        return None;
+        return Err(ExitCode::SUCCESS);
     }
 
     if args.contains(["-V", "--version"]) {
@@ -55,7 +60,7 @@ pub fn parse_args() -> Option<Options> {
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION")
         );
-        return None;
+        return Err(ExitCode::SUCCESS);
     }
 
     let exit = args.contains(["-x", "--exit"]);
@@ -64,11 +69,15 @@ pub fn parse_args() -> Option<Options> {
     let verbose = args.contains(["-v", "--verbose"]);
 
     let kill_timer = match args.opt_value_from_str(["-k", "--kill-timer"]) {
-        Ok(Some(kt)) => kt,
         Ok(None) => 5000,
+        Ok(Some(kt)) if kt >= 0 => kt,
+        Ok(Some(_)) => {
+            eprintln!("<runar> Error: kill timer must be a positive integer");
+            return Err(ExitCode::FAILURE);
+        }
         Err(e) => {
-            eprintln!("Error: {}", e);
-            process::exit(1);
+            eprintln!("<runar> Error: {}", e);
+            return Err(ExitCode::FAILURE);
         }
     };
 
@@ -77,10 +86,17 @@ pub fn parse_args() -> Option<Options> {
     if remaining.len() < 2 {
         eprintln!("Too few arguments");
         println!("\n{}", HELP);
-        process::exit(1);
+        return Err(ExitCode::FAILURE);
     }
 
-    Some(Options {
+    // This might become configurable in the future
+    let mut sigmask = SigSet::empty();
+    sigmask.add(signal::SIGHUP);
+    sigmask.add(signal::SIGINT);
+    sigmask.add(signal::SIGTERM);
+    sigmask.add(signal::SIGCHLD);
+
+    Ok(Options {
         exit,
         error,
         recursive,
@@ -88,5 +104,6 @@ pub fn parse_args() -> Option<Options> {
         kill_timer,
         command: remaining.remove(0),
         files: remaining,
+        sigmask,
     })
 }

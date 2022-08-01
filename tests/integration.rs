@@ -2,15 +2,27 @@ extern crate assert_cmd;
 extern crate assert_fs;
 extern crate test_binary;
 
+// TODO add exitstatus to all tests
+
 mod integration {
+    use std::process::Child;
+    use std::process::Stdio;
     use std::sync::Once;
     use std::thread;
     use std::time::Duration;
 
+    use assert_cmd::assert::Assert;
+    use assert_cmd::cargo::cargo_bin;
     use assert_cmd::Command;
+
     use assert_fs::fixture::ChildPath;
     use assert_fs::prelude::*;
     use assert_fs::TempDir;
+
+    use nix::sys::signal::kill;
+    use nix::sys::signal::Signal;
+    use nix::unistd::Pid;
+
     use test_binary::build_mock_binary_with_opts;
 
     const TEST_BINARY_PATH: &str = env!("CARGO_BIN_EXE_runartest");
@@ -27,10 +39,26 @@ mod integration {
         return testprog;
     }
 
+    fn run_runar(args: Vec<&str>) -> Child {
+        std::process::Command::new(cargo_bin(env!("CARGO_PKG_NAME")))
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    }
+
     fn delayed_write_file(millis: u64, tmp_file: ChildPath) {
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(millis));
             tmp_file.write_str("my file").unwrap();
+        });
+    }
+
+    fn delayed_sigterm(millis: u64, pid: i32) {
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(millis));
+            kill(Pid::from_raw(pid), Signal::SIGTERM).unwrap();
         });
     }
 
@@ -51,6 +79,39 @@ mod integration {
     }
 
     #[test]
+    fn file_not_found() {
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args([&testprog("foo success"), "./does_not_exist"])
+            .timeout(Duration::from_millis(200))
+            .assert();
+
+        // file not found
+        assert.failure();
+
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args([&testprog("foo success"), ".", "./does_not_exist"])
+            .timeout(Duration::from_millis(200))
+            .assert();
+
+        // file not found
+        assert.failure();
+    }
+
+    #[test]
+    fn recursive_file_not_found() {
+        let assert = Command::cargo_bin("runar")
+            .unwrap()
+            .args(["-r", &testprog("foo success"), "./does_not_exist"])
+            .timeout(Duration::from_millis(200))
+            .assert();
+
+        // file not found
+        assert.failure();
+    }
+
+    #[test]
     fn exit_flag_with_success() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
@@ -61,7 +122,7 @@ mod integration {
         // runar starts runartest
         // runartest exits cleanly
         // runar exits cleanly
-        assert.stdout("start foo\nend foo\n").success();
+        assert.stdout("start foo\nend foo\n").stderr("").success();
     }
 
     #[test]
@@ -98,6 +159,7 @@ mod integration {
         // runar gets interrupted
         assert
             .stdout("start foo\nend foo\nstart foo\nend foo\n")
+            .stderr("")
             .interrupted();
     }
 
@@ -110,8 +172,8 @@ mod integration {
             .assert();
 
         // runar starts runartest
-        // runartest errors
-        // runar exits with runartests error code
+        // runartest exits with status 13
+        // runar exits with runartests status 13
         assert.stdout("start foo\n").stderr("err foo\n").code(13);
     }
 
@@ -134,121 +196,87 @@ mod integration {
             .interrupted();
     }
 
-    #[cfg(failing_tests)]
     #[test]
     fn file_watch() {
         let tmp_dir = TempDir::new().unwrap();
-        let tmp_file = tmp_dir.child("deep/file");
+        let tmp_file = tmp_dir.child("file");
         tmp_file.touch().unwrap();
-        let file = tmp_file.path().to_str().unwrap().to_owned();
+        let file = tmp_file.to_str().unwrap();
+
+        let runar = run_runar(vec![&testprog("foo sleep"), file]);
 
         delayed_write_file(200, tmp_file);
+        delayed_sigterm(500, runar.id() as i32);
 
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args([&testprog("foo sleep"), &file])
-            .timeout(Duration::from_millis(500))
-            .assert();
+        let output = runar.wait_with_output().unwrap();
+        let assert = Assert::new(output);
 
         // runar starts runartest
         // runartest sleeps
         // file is written
         // runar restarts runartest
         // runartest sleeps
-        // runartest gets interrupted
-        // TODO broken because runar does not handle the interrupt properly
-        assert.stdout("start foo\nstart foo\n").interrupted();
+        // runar gets sigterm
+        // runar sends sigterm to runartest
+        assert.stdout("start foo\nstart foo\n").stderr("");
     }
 
-    #[cfg(failing_tests)]
     #[test]
     fn recursive_file_watch() {
         let tmp_dir = TempDir::new().unwrap();
-        let dir = tmp_dir.path().to_str().unwrap().to_owned();
-
+        let dir = tmp_dir.to_str().unwrap();
         let tmp_file = tmp_dir.child("deep/file");
         tmp_file.touch().unwrap();
 
-        delayed_write_file(200, tmp_file);
+        let runar = run_runar(vec!["-r", &testprog("foo sleep"), dir]);
 
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args(["-r", &testprog("foo sleep"), &dir])
-            .timeout(Duration::from_millis(500))
-            .assert();
+        delayed_write_file(200, tmp_file);
+        delayed_sigterm(500, runar.id() as i32);
+
+        let output = runar.wait_with_output().unwrap();
+        let assert = Assert::new(output);
 
         // runar starts runartest
         // runartest sleeps
         // file is written
         // runar restarts runartest
         // runartest sleeps
-        // runartest gets interrupted
-        // TODO broken because runar does not handle the interrupt properly
-        assert.stdout("start foo\nstart foo\n").interrupted();
+        // runar gets sigterm
+        // runar sends sigterm to runartest
+        assert.stdout("start foo\nstart foo\n").stderr("");
     }
 
-    #[test]
-    fn file_not_found() {
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args([&testprog("foo success"), "./does_not_exist"])
-            .timeout(Duration::from_millis(200))
-            .assert();
-
-        assert.code(1);
-
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args([&testprog("foo success"), ".", "./does_not_exist"])
-            .timeout(Duration::from_millis(200))
-            .assert();
-
-        assert.code(1);
-    }
-
-    #[test]
-    fn recursive_file_not_found() {
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args(["-r", &testprog("foo success"), "./does_not_exist"])
-            .timeout(Duration::from_millis(200))
-            .assert();
-
-        assert.code(1);
-    }
-
-    #[cfg(failing_tests)]
     #[test]
     fn uninterruptible_cmd() {
         let tmp_dir = TempDir::new().unwrap();
         let tmp_file = tmp_dir.child("file");
         tmp_file.touch().unwrap();
-        let file = tmp_file.path().to_str().unwrap().to_owned();
+        let file = tmp_file.to_str().unwrap();
+
+        let runar = run_runar(vec!["-x", "-k", "10", &testprog("foo hang"), file]);
 
         delayed_write_file(200, tmp_file);
+        delayed_sigterm(500, runar.id() as i32);
 
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args(["-x", "-k", "10", &testprog("foo hang"), &file])
-            .timeout(Duration::from_millis(500))
-            .assert();
+        let output = runar.wait_with_output().unwrap();
+        let assert = Assert::new(output);
 
         // runar starts runartest
         // runartest hangs
         // file is written
         // runar attempts to restart runartest
-        // runartest gets SIGTERM'd
-        // runartest gets SIGKILL'd
+        // runartest gets sigterm
+        // runartest gets sigkill
         // runar restarts runartest
-        // TODO broken because runar does not handle the interrupt properly
-        assert.stdout("start foo\nstart foo\n").interrupted();
+        // runar gets sigterm
+        // runar sends sigterm and then sigkill to runartest
+        assert.stdout("start foo\nstart foo\n").stderr("");
     }
 
-    #[cfg(failing_tests)]
     #[test]
     fn multiple_writes() {
         let tmp_dir = TempDir::new().unwrap();
-        let dir = tmp_dir.path().to_str().unwrap().to_owned();
+        let dir = tmp_dir.to_str().unwrap();
 
         let tmp_file_1 = tmp_dir.child("file1");
         tmp_file_1.touch().unwrap();
@@ -256,41 +284,43 @@ mod integration {
         let tmp_file_2 = tmp_dir.child("file2");
         tmp_file_2.touch().unwrap();
 
-        delayed_write_file(200, tmp_file_1);
-        delayed_write_file(250, tmp_file_2);
+        let tmp_file_3 = tmp_dir.child("file3");
+        tmp_file_3.touch().unwrap();
 
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args(["-r", &testprog("foo sleep"), &dir])
-            .timeout(Duration::from_millis(500))
-            .assert();
+        let runar = run_runar(vec!["-r", &testprog("foo sleep"), dir]);
+
+        delayed_write_file(200, tmp_file_1);
+        delayed_write_file(230, tmp_file_2);
+        delayed_write_file(260, tmp_file_3);
+        delayed_sigterm(500, runar.id() as i32);
+
+        let output = runar.wait_with_output().unwrap();
+        let assert = Assert::new(output);
 
         // runar starts runartest
         // runartest sleeps
         // file1 is written
         // runar stops runartest
-        // file2 is written
-        // runar clears second filewrite from buffer
+        // file2 and file3 are written
+        // runar clears filewrites from buffer
         // runar starts runartest
-        // TODO broken because runar does not handle the interrupt properly
-        assert.stdout("start foo\nstart foo\n").interrupted();
+        assert.stdout("start foo\nstart foo\n").stderr("");
     }
 
-    #[cfg(failing_tests)]
     #[test]
     fn file_watch_with_child_sleep() {
         let tmp_dir = TempDir::new().unwrap();
         let tmp_file = tmp_dir.child("file");
         tmp_file.touch().unwrap();
-        let file = tmp_file.path().to_str().unwrap().to_owned();
+        let file = tmp_file.to_str().unwrap();
+
+        let runar = run_runar(vec!["-k", "10", &testprog("foo waitchild bar sleep"), file]);
 
         delayed_write_file(200, tmp_file);
+        delayed_sigterm(500, runar.id() as i32);
 
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args(["-k", "10", &testprog("foo waitchild bar sleep"), &file])
-            .timeout(Duration::from_millis(500))
-            .assert();
+        let output = runar.wait_with_output().unwrap();
+        let assert = Assert::new(output);
 
         // runar starts runartest foo
         // foo starts child bar
@@ -300,25 +330,25 @@ mod integration {
         // runar stops foo
         // runar cleans up bar
         // runar restarts foo
-        // TODO broken because runar does not handle the interrupt properly
-        assert.stdout("start foo\nstart bar\nstart foo\nstart bar\n").interrupted();
+        assert
+            .stdout("start foo\nstart bar\nstart foo\nstart bar\n")
+            .stderr("");
     }
 
-    #[cfg(failing_tests)]
     #[test]
     fn file_watch_with_child_hang() {
         let tmp_dir = TempDir::new().unwrap();
         let tmp_file = tmp_dir.child("file");
         tmp_file.touch().unwrap();
-        let file = tmp_file.path().to_str().unwrap().to_owned();
+        let file = tmp_file.to_str().unwrap();
+
+        let runar = run_runar(vec!["-k", "10", &testprog("foo waitchild bar hang"), file]);
 
         delayed_write_file(200, tmp_file);
+        delayed_sigterm(500, runar.id() as i32);
 
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args(["-k", "10", &testprog("foo waitchild sleep hang"), &file])
-            .timeout(Duration::from_millis(500))
-            .assert();
+        let output = runar.wait_with_output().unwrap();
+        let assert = Assert::new(output);
 
         // runar starts runartest foo
         // foo starts child bar
@@ -326,37 +356,31 @@ mod integration {
         // bar hangs
         // file is written
         // runar stops foo
-        // runar cleans up bar
+        // runar cleans up bar (by killing)
         // runar restarts foo
-        // TODO broken because runar does not handle the interrupt properly
-        assert.stdout("start foo\nstart bar\nstart foo\nstart bar\n").interrupted();
+        assert
+            .stdout("start foo\nstart bar\nstart foo\nstart bar\n")
+            .stderr("");
     }
 
-    #[cfg(failing_tests)]
     #[test]
-    fn file_watch_with_grandchild() {
+    fn grandchild_cleanup() {
         let tmp_dir = TempDir::new().unwrap();
-        let tmp_file = tmp_dir.child("file");
-        tmp_file.touch().unwrap();
-        let file = tmp_file.path().to_str().unwrap().to_owned();
+        let dir = tmp_dir.to_str().unwrap();
 
-        delayed_write_file(200, tmp_file);
+        let runar = run_runar(vec!["-x", &testprog("foo child bar sleep"), dir]);
 
-        let assert = Command::cargo_bin("runar")
-            .unwrap()
-            .args(["-k", "10", &testprog("foo child bar sleep"), &file])
-            .timeout(Duration::from_millis(500))
-            .assert();
+        delayed_sigterm(500, runar.id() as i32);
+
+        let output = runar.wait_with_output().unwrap();
+        let assert = Assert::new(output);
 
         // runar starts runartest foo
         // foo starts child bar
         // foo exits
         // bar sleeps
-        // file is written
-        // runar attempts to stop foo
+        // runar attempts to exit
         // runar cleans up bar
-        // runar restarts foo
-        // TODO broken because runar does not handle the interrupt properly
-        assert.stdout("start foo\nstart bar\nstart foo\nstart bar\n").interrupted();
+        assert.stdout("start foo\nstart bar\nend foo\n").stderr("");
     }
 }

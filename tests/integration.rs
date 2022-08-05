@@ -28,15 +28,18 @@ mod integration {
     const TEST_BINARY_PATH: &str = env!("CARGO_BIN_EXE_runartest");
     static INIT: Once = Once::new();
 
-    fn testprog(arg: &str) -> String {
+    fn testprog() -> &'static str {
         INIT.call_once(|| {
             build_mock_binary_with_opts("runartest", None, vec!["runartest"]).unwrap();
         });
 
+        TEST_BINARY_PATH
+        /*
         let mut testprog = TEST_BINARY_PATH.to_owned();
         testprog.push_str(" ");
         testprog.push_str(arg);
         return testprog;
+        */
     }
 
     fn run_runar(args: Vec<&str>) -> Child {
@@ -82,7 +85,7 @@ mod integration {
     fn file_not_found() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args([&testprog("foo success"), "./does_not_exist"])
+            .args(["-f", "./does_not_exist", "--", testprog(), "foo", "success"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -91,7 +94,16 @@ mod integration {
 
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args([&testprog("foo success"), ".", "./does_not_exist"])
+            .args([
+                "-f",
+                ".",
+                "-f",
+                "./does_not_exist",
+                "--",
+                testprog(),
+                "foo",
+                "success",
+            ])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -103,7 +115,15 @@ mod integration {
     fn recursive_file_not_found() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-r", &testprog("foo success"), "./does_not_exist"])
+            .args([
+                "-r",
+                "-f",
+                "./does_not_exist",
+                "--",
+                testprog(),
+                "foo",
+                "success",
+            ])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -115,7 +135,7 @@ mod integration {
     fn exit_flag_with_success() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-x", &testprog("foo success"), "."])
+            .args(["-x", "--", testprog(), "foo", "success"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -129,7 +149,7 @@ mod integration {
     fn exit_flag_with_error() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-x", &testprog("foo error"), "."])
+            .args(["-x", "--", testprog(), "foo", "error"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -148,7 +168,7 @@ mod integration {
     fn exit_on_error_flag_with_success() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-e", &testprog("foo success"), "."])
+            .args(["-e", "--", testprog(), "foo", "success"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -167,7 +187,7 @@ mod integration {
     fn exit_on_error_flag_with_error() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-e", &testprog("foo error"), "."])
+            .args(["-e", "--", testprog(), "foo", "error"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -181,7 +201,7 @@ mod integration {
     fn restart_on_error() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args([&testprog("foo error"), "."])
+            .args(["--", testprog(), "foo", "error"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -203,7 +223,7 @@ mod integration {
         tmp_file.touch().unwrap();
         let file = tmp_file.to_str().unwrap();
 
-        let runar = run_runar(vec![&testprog("foo sleep"), file]);
+        let runar = run_runar(vec!["-f", file, "--", testprog(), "foo", "sleep"]);
 
         delayed_write_file(200, tmp_file);
         delayed_sigterm(500, runar.id() as i32);
@@ -228,7 +248,7 @@ mod integration {
         let tmp_file = tmp_dir.child("deep/file");
         tmp_file.touch().unwrap();
 
-        let runar = run_runar(vec!["-r", &testprog("foo sleep"), dir]);
+        let runar = run_runar(vec!["-rf", dir, "--", testprog(), "foo", "sleep"]);
 
         delayed_write_file(200, tmp_file);
         delayed_sigterm(500, runar.id() as i32);
@@ -253,7 +273,7 @@ mod integration {
         tmp_file.touch().unwrap();
         let file = tmp_file.to_str().unwrap();
 
-        let runar = run_runar(vec!["-x", "-k", "10", &testprog("foo hang"), file]);
+        let runar = run_runar(vec!["-xk10", "-f", file, "--", testprog(), "foo", "hang"]);
 
         delayed_write_file(200, tmp_file);
         delayed_sigterm(500, runar.id() as i32);
@@ -287,7 +307,7 @@ mod integration {
         let tmp_file_3 = tmp_dir.child("file3");
         tmp_file_3.touch().unwrap();
 
-        let runar = run_runar(vec!["-r", &testprog("foo sleep"), dir]);
+        let runar = run_runar(vec!["-rf", dir, "--", testprog(), "foo", "sleep"]);
 
         delayed_write_file(200, tmp_file_1);
         delayed_write_file(230, tmp_file_2);
@@ -314,7 +334,17 @@ mod integration {
         tmp_file.touch().unwrap();
         let file = tmp_file.to_str().unwrap();
 
-        let runar = run_runar(vec!["-k", "10", &testprog("foo waitchild bar sleep"), file]);
+        let runar = run_runar(vec![
+            "-k10",
+            "-f",
+            file,
+            "--",
+            testprog(),
+            "foo",
+            "waitchild",
+            "bar",
+            "sleep",
+        ]);
 
         delayed_write_file(200, tmp_file);
         delayed_sigterm(500, runar.id() as i32);
@@ -342,7 +372,17 @@ mod integration {
         tmp_file.touch().unwrap();
         let file = tmp_file.to_str().unwrap();
 
-        let runar = run_runar(vec!["-k", "10", &testprog("foo waitchild bar hang"), file]);
+        let runar = run_runar(vec![
+            "-k10",
+            "-f",
+            file,
+            "--",
+            testprog(),
+            "foo",
+            "waitchild",
+            "bar",
+            "hang",
+        ]);
 
         delayed_write_file(200, tmp_file);
         delayed_sigterm(500, runar.id() as i32);
@@ -365,10 +405,7 @@ mod integration {
 
     #[test]
     fn grandchild_cleanup() {
-        let tmp_dir = TempDir::new().unwrap();
-        let dir = tmp_dir.to_str().unwrap();
-
-        let runar = run_runar(vec!["-x", &testprog("foo child bar sleep"), dir]);
+        let runar = run_runar(vec!["-x", "--", testprog(), "foo", "child", "bar", "sleep"]);
 
         delayed_sigterm(500, runar.id() as i32);
 

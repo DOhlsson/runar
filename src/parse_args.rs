@@ -17,7 +17,7 @@ const HELP: &str = concat!(
     "\n\n",
     "\
 USAGE:
-    runar [FLAGS] [OPTIONS] <COMMAND> <FILE>...
+    runar [FLAGS] -- <COMMAND> <ARGS...>
 
 FLAGS:
     -x, --exit                      exit when COMMAND returns zero
@@ -27,10 +27,11 @@ FLAGS:
     -V, --version                   Prints version information
     -v, --verbose                   increases the level of verbosity
     -k, --kill-timer <kill-timer>   time in milliseconds until kill signal is sent [default: 5000]
+    -f, --file <filename>           path to file or directory to watch, multiple flags allowed
 
 ARGS:
     <COMMAND>    the COMMAND to execute
-    <FILE>...    the file(s) to watch
+    <ARGS>...    the arguments to COMMAND
 "
 );
 
@@ -41,13 +42,25 @@ pub struct Options {
     pub recursive: bool,
     pub verbose: bool,
     pub kill_timer: i32,
-    pub command: OsString,
+    pub command: Vec<OsString>,
     pub files: Vec<OsString>,
     pub sigmask: SigSet,
 }
 
 pub fn parse_args() -> Result<Options, ExitCode> {
-    let mut args = Arguments::from_env();
+    let args: Vec<OsString> = std::env::args_os().collect();
+
+    let (mut args, command) = match args.iter().position(|arg| arg == "--") {
+        Some(split_index) => {
+            let (left, right) = args.split_at(split_index);
+            (Vec::from(left), Some(Vec::from(right)))
+        }
+        None => (args.clone(), None),
+    };
+
+    args.remove(0); // Remove program name
+
+    let mut args = Arguments::from_vec(args);
 
     if args.contains(["-h", "--help"]) {
         println!("{}", HELP);
@@ -61,6 +74,21 @@ pub fn parse_args() -> Result<Options, ExitCode> {
             env!("CARGO_PKG_VERSION")
         );
         return Err(ExitCode::SUCCESS);
+    }
+
+    if command.is_none() {
+        eprintln!("<runar> Error: Expected command after -- argument");
+        println!("{}", HELP);
+        return Err(ExitCode::FAILURE);
+    }
+
+    let mut command = command.unwrap();
+    command.remove(0); // Remove --
+
+    if command.is_empty() {
+        eprintln!("<runar> Error: Expected command after -- argument");
+        println!("{}", HELP);
+        return Err(ExitCode::FAILURE);
     }
 
     let exit = args.contains(["-x", "--exit"]);
@@ -81,11 +109,23 @@ pub fn parse_args() -> Result<Options, ExitCode> {
         }
     };
 
-    let mut remaining = args.finish();
+    let mut files = Vec::new();
 
-    if remaining.len() < 2 {
-        eprintln!("Too few arguments");
-        println!("\n{}", HELP);
+    loop {
+        match args.opt_value_from_str(["-f", "--file"]) {
+            Ok(None) => break,
+            Ok(Some(file)) => files.push(file),
+            Err(e) => {
+                eprintln!("<runar> Error: {}", e);
+                return Err(ExitCode::FAILURE);
+            }
+        };
+    }
+
+    let remaining = args.finish();
+
+    if !remaining.is_empty() {
+        eprintln!("<runar> Error: Unknown arguments {:?}", remaining);
         return Err(ExitCode::FAILURE);
     }
 
@@ -102,8 +142,8 @@ pub fn parse_args() -> Result<Options, ExitCode> {
         recursive,
         verbose,
         kill_timer,
-        command: remaining.remove(0),
-        files: remaining,
+        command,
+        files,
         sigmask,
     })
 }

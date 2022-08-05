@@ -4,7 +4,6 @@ extern crate nix;
 mod event_handler;
 mod parse_args;
 
-use std::ffi::OsStr;
 use std::os::unix::process::CommandExt;
 use std::process;
 use std::process::Command;
@@ -43,7 +42,7 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("<runar> Error: {}", e);
             1
-        },
+        }
         Ok(exitstatus) => exitstatus,
     };
 
@@ -54,10 +53,10 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
     // Become a subreaper, taking on the responsibiliy of handling orphaned processess
     prctl::set_child_subreaper(true)?;
 
-    let mut handler = EventHandler::create(&opts)?;
+    let mut handler = EventHandler::create(opts)?;
 
     let mut exitstatus = 0;
-    let mut child_pid = spawn_child(&opts);
+    let mut child_pid = spawn_child(opts);
     let mut event;
     let mut state = State::Running;
 
@@ -78,11 +77,11 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
 
         match (state, event) {
             (State::Running, Event::Terminate) => {
-                term_wait_kill(child_pid, &mut handler, &opts);
+                term_wait_kill(child_pid, &mut handler, opts);
                 break;
             }
             (State::Running, Event::FilesChanged) => {
-                term_wait_kill(child_pid, &mut handler, &opts);
+                term_wait_kill(child_pid, &mut handler, opts);
                 state = State::Dead; // Restart child
             }
             (State::Running, Event::ChildExit(dead_pid)) if dead_pid == child_pid => {
@@ -94,7 +93,7 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
                 };
 
                 // Kill all children in pgrp
-                term_wait_kill(child_pid, &mut handler, &opts);
+                term_wait_kill(child_pid, &mut handler, opts);
 
                 if opts.verbose {
                     println!("<runar> child process exited with {}", status);
@@ -126,7 +125,7 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
             }
             // An unknown child exited
             (State::Dead, _) => {
-                child_pid = spawn_child(&opts);
+                child_pid = spawn_child(opts);
                 state = State::Running;
             }
         }
@@ -137,10 +136,9 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
     Ok(exitstatus)
 }
 
-// TODO remove reliance on sh
 fn spawn_child(opts: &Options) -> Pid {
-    let mut command = Command::new("sh");
-    command.args(&[OsStr::new("-c"), &opts.command]);
+    let mut command = Command::new(&opts.command[0]);
+    command.args(&opts.command[1..]);
     let sigmask = opts.sigmask;
 
     unsafe {

@@ -37,8 +37,8 @@ ARGS:
 
 #[derive(Debug)]
 pub struct Options {
-    pub exit: bool,
-    pub error: bool,
+    pub exit_on_zero: bool,
+    pub exit_on_error: bool,
     pub recursive: bool,
     pub verbose: bool,
     pub kill_timer: i32,
@@ -91,8 +91,8 @@ pub fn parse_args() -> Result<Options, ExitCode> {
         return Err(ExitCode::FAILURE);
     }
 
-    let exit = args.contains(["-x", "--exit"]);
-    let error = args.contains(["-e", "--exit-on-error"]);
+    let exit_on_zero = args.contains(["-x", "--exit"]);
+    let exit_on_error = args.contains(["-e", "--exit-on-error"]);
     let recursive = args.contains(["-r", "--recursive"]);
     let verbose = args.contains(["-v", "--verbose"]);
 
@@ -137,8 +137,8 @@ pub fn parse_args() -> Result<Options, ExitCode> {
     sigmask.add(signal::SIGCHLD);
 
     Ok(Options {
-        exit,
-        error,
+        exit_on_zero,
+        exit_on_error,
         recursive,
         verbose,
         kill_timer,

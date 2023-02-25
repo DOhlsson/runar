@@ -111,7 +111,10 @@ impl EventHandler {
                             SIGTERM | SIGINT | SIGHUP => Event::Terminate,
                             SIGCHLD => Event::ChildExit(Pid::from_raw(sig.ssi_pid as i32)),
                             _ => {
-                                eprintln!("<runar> Unexpected signal caught by signalfd");
+                                eprintln!(
+                                    "<runar> Unexpected signal {} caught by signalfd",
+                                    signal
+                                );
                                 Event::Terminate
                             }
                         }

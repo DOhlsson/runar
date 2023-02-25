@@ -1,10 +1,10 @@
 extern crate nix;
 
 use std::env::Args;
+use std::io::BufRead;
 use std::process::Command;
-use std::thread;
 use std::time::Duration;
-use std::{env, process};
+use std::{env, io, process, thread};
 
 use nix::sys::signal::{signal, SigHandler, Signal};
 
@@ -53,6 +53,12 @@ fn main() {
         Some("waitchild") => {
             // spawns a child runartest and waits for it
             spawn_child(runartest, args, true);
+        }
+        Some("cat") => {
+            let stdin = io::stdin();
+            let mut lines = stdin.lock().lines();
+            let line = lines.next().unwrap().unwrap();
+            println!("{}", line);
         }
         Some(_) => {
             eprintln!("Unknown argument");

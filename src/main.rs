@@ -89,7 +89,10 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
                 let status = match child_status {
                     WaitStatus::Exited(_, status) => status as u8,
                     WaitStatus::Signaled(_, signal, _) => 128 + signal as u8,
-                    _ => continue,
+                    status => {
+                        eprintln!("<runar> Error: Unhandled status {:?}", status);
+                        continue;
+                    }
                 };
 
                 // Kill all children in pgrp
@@ -99,11 +102,11 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
                     println!("<runar> child process exited with {}", status);
                 }
 
-                if opts.exit && status == 0 {
+                if opts.exit_on_zero && status == 0 {
                     break;
                 }
 
-                if opts.error && status != 0 {
+                if opts.exit_on_error && status != 0 {
                     exitstatus = status;
                     break;
                 }
@@ -149,8 +152,9 @@ fn spawn_child(opts: &Options) -> Pid {
             // set a process group for the child, so we may easily kill the entire group
             // this group is inherited by all grandchildren (unless they change the group
             // themselves)
-            // there is a groups() function in nightly that could be used once it's stabilized
+            // there is a process_group() function in rust 1.64 that could be used instead
             unistd::setpgid(Pid::from_raw(0), Pid::from_raw(process::id() as i32)).unwrap();
+
             Ok(())
         });
     }

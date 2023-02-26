@@ -1,6 +1,6 @@
 [package]
 name = "runar"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Daniel Ohlsson <dohlsson89@gmail.com>"]
 description = "Watches for changes in files and RUNs And Restarts a program"
 documentation = "https://github.com/DOhlsson/runar"

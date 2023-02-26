@@ -2,40 +2,59 @@
 Watches for changes in files and RUNs And Restarts a program. A resource-efficient replacement for nodemon.
 
 Quick links:
+* [Features](#features)
 * [Installation](#installation)
 * [How to use](#how-to-use)
-* [Troubleshooting](#troubleshooting)
-* [Size milestones](#size-milestones)
+* [Bugs](#bugs)
 
 # Features
-* A binary that is container friendly, only depends on libc and is very small
-TODO
+* A binary that is container friendly, only depends on libc and is very small.
+* Can be used to repeat commands until success/failure.
 
 # Installation
-TODO
+Linux:
+```shell
+$ cargo install --git https://github.com/DOhlsson/runar.git
+```
+
+Docker:
+```Dockerfile
+ADD https://github.com/DOhlsson/runar/releases/download/0.2.0/runar /usr/bin/runar
+RUN chmod a+x /usr/bin/runar
+```
 
 # How to use
-TODO
+```shell
+$ runar -h
+USAGE:
+    runar [FLAGS] -- <COMMAND> <ARGS...>
 
-# Troubleshooting
-TODO
+FLAGS:
+    -x, --exit                      exit when COMMAND returns zero
+    -e, --exit-on-error             exits with the same status code as COMMAND
+    -h, --help                      Prints help information
+    -r, --recursive                 recursively watch directories
+    -V, --version                   Prints version information
+    -v, --verbose                   increases the level of verbosity
+    -k, --kill-timer <kill-timer>   time in milliseconds until kill signal is sent [default: 5000]
+    -f, --file <filename>           path to file or directory to watch, multiple flags allowed
 
-# Size milestones
-- vim 3.1MB
-- bash 1.2MB
-- xterm 832KB
-- ssh 780KB
-- busybox 700KB
-- tar 520KB
-- **runar 372KB**
-- nano 344KB
-- find 304KB
-- make 236KB
-- grep 200KB
-- less 172KB
-- cp, mv, ls 144KB
-- dash 124KB
-- bc 96KB
-- chmod 64KB
-- head 48KB
-- kill, inotifywait 32KB
+ARGS:
+    <COMMAND>    the COMMAND to execute
+    <ARGS>...    the arguments to COMMAND
+```
+
+Watch a directory recursively and restart your program when the directory is updated.
+```shell
+$ runar -r -f ./src -- your program
+```
+
+Run and restart a program until it is successfull.
+```shell
+$ runar -x -- your program
+```
+
+More options are available, see the -h flag.
+
+# Bugs
+* Currently the target program will get paused by the system if it attempts to read stdin.

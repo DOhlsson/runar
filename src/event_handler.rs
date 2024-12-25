@@ -1,3 +1,4 @@
+use std::os::fd::AsFd;
 use std::os::unix::prelude::AsRawFd;
 use std::{cmp, process};
 
@@ -12,6 +13,9 @@ use nix::unistd::Pid;
 use walkdir::WalkDir;
 
 use crate::parse_args::Options;
+
+const SIGNAL_EVENT: u64 = 1;
+const INOTIFY_EVENT: u64 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Event {
@@ -37,11 +41,11 @@ impl EventHandler {
         let raw_signal_fd = signalfd.as_raw_fd();
 
         let inotify = setup_inotify(opts);
-        let raw_inotify_fd = inotify.as_raw_fd();
+        let raw_inotify_fd = inotify.as_fd().as_raw_fd();
 
         let raw_epoll_fd = epoll::epoll_create1(EpollCreateFlags::EPOLL_CLOEXEC)?;
-        let mut signal_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, raw_signal_fd as u64);
-        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, raw_inotify_fd as u64);
+        let mut signal_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, SIGNAL_EVENT);
+        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, INOTIFY_EVENT);
 
         epoll::epoll_ctl(
             raw_epoll_fd,
@@ -68,7 +72,7 @@ impl EventHandler {
 
     pub fn wait_signals(&mut self, timeout: i32) -> Result<Event, Errno> {
         // Disable inotify in epoll_fd
-        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::empty(), self.raw_inotify_fd as u64);
+        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::empty(), INOTIFY_EVENT);
         epoll::epoll_ctl(
             self.raw_epoll_fd,
             EpollOp::EpollCtlMod,
@@ -79,7 +83,7 @@ impl EventHandler {
         let res = self.wait(timeout);
 
         // Re-enable inotify in epoll_fd
-        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, self.raw_inotify_fd as u64);
+        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, INOTIFY_EVENT);
         epoll::epoll_ctl(
             self.raw_epoll_fd,
             EpollOp::EpollCtlMod,
@@ -101,7 +105,7 @@ impl EventHandler {
         for ev in &ep_evs[..ready_fds] {
             let data = ev.data();
             let new_event;
-            if data == self.raw_signal_fd as u64 {
+            if data == SIGNAL_EVENT {
                 new_event = match self.signalfd.read_signal() {
                     Ok(Some(sig)) => {
                         let signal = Signal::try_from(sig.ssi_signo as i32).unwrap();
@@ -127,7 +131,7 @@ impl EventHandler {
                         Event::Terminate
                     }
                 };
-            } else if data == self.raw_inotify_fd as u64 {
+            } else if data == INOTIFY_EVENT {
                 self.clear_inotify()?;
 
                 // TODO write which files changed if verbose

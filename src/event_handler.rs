@@ -1,10 +1,10 @@
 use std::os::fd::AsFd;
-use std::os::unix::prelude::AsRawFd;
 use std::{cmp, process};
 
 use nix::errno::Errno;
-use nix::sys::epoll;
-use nix::sys::epoll::{EpollCreateFlags, EpollEvent, EpollFlags, EpollOp};
+use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+use nix::sys::epoll::Epoll;
+use nix::sys::epoll::{EpollCreateFlags, EpollEvent, EpollFlags};
 use nix::sys::inotify::{AddWatchFlags, InitFlags, Inotify};
 use nix::sys::signal::Signal;
 use nix::sys::signalfd::{SfdFlags, SignalFd};
@@ -26,10 +26,8 @@ pub enum Event {
 }
 
 pub struct EventHandler {
-    raw_epoll_fd: i32,
+    epoll: Epoll,
     inotify: Inotify,
-    raw_inotify_fd: i32,
-    raw_signal_fd: i32,
     signalfd: SignalFd,
 }
 
@@ -38,66 +36,38 @@ impl EventHandler {
         opts.sigmask.thread_block()?;
 
         let signalfd = SignalFd::with_flags(&opts.sigmask, SfdFlags::SFD_NONBLOCK)?;
-        let raw_signal_fd = signalfd.as_raw_fd();
-
         let inotify = setup_inotify(opts);
-        let raw_inotify_fd = inotify.as_fd().as_raw_fd();
 
-        let raw_epoll_fd = epoll::epoll_create1(EpollCreateFlags::EPOLL_CLOEXEC)?;
-        let mut signal_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, SIGNAL_EVENT);
-        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, INOTIFY_EVENT);
+        let signal_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, SIGNAL_EVENT);
+        let inotify_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, INOTIFY_EVENT);
 
-        epoll::epoll_ctl(
-            raw_epoll_fd,
-            EpollOp::EpollCtlAdd,
-            raw_signal_fd,
-            &mut signal_ep_ev,
-        )?;
-
-        epoll::epoll_ctl(
-            raw_epoll_fd,
-            EpollOp::EpollCtlAdd,
-            raw_inotify_fd,
-            &mut inotify_ep_ev,
-        )?;
+        let epoll = Epoll::new(EpollCreateFlags::EPOLL_CLOEXEC)?;
+        epoll.add(&signalfd, signal_ep_ev)?;
+        epoll.add(&inotify, inotify_ep_ev)?;
 
         Ok(EventHandler {
-            raw_epoll_fd,
             inotify,
-            raw_inotify_fd,
-            raw_signal_fd,
+            epoll,
             signalfd,
         })
     }
 
     pub fn wait_signals(&mut self, timeout: i32) -> Result<Event, Errno> {
-        // Disable inotify in epoll_fd
-        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::empty(), INOTIFY_EVENT);
-        epoll::epoll_ctl(
-            self.raw_epoll_fd,
-            EpollOp::EpollCtlMod,
-            self.raw_inotify_fd,
-            &mut inotify_ep_ev,
-        )?;
+        let mut pfd = [PollFd::new(self.signalfd.as_fd(), PollFlags::POLLIN)];
 
-        let res = self.wait(timeout);
+        let res = poll(&mut pfd, PollTimeout::from(timeout as u16))?;
 
-        // Re-enable inotify in epoll_fd
-        let mut inotify_ep_ev = EpollEvent::new(EpollFlags::EPOLLIN, INOTIFY_EVENT);
-        epoll::epoll_ctl(
-            self.raw_epoll_fd,
-            EpollOp::EpollCtlMod,
-            self.raw_inotify_fd,
-            &mut inotify_ep_ev,
-        )?;
-
-        res
+        if res.is_positive() {
+            Ok(read_signal(&self.signalfd))
+        } else {
+            Ok(Event::Nothing)
+        }
     }
 
     pub fn wait(&mut self, timeout: i32) -> Result<Event, Errno> {
         let mut ep_evs = [EpollEvent::empty(); 10];
 
-        let ready_fds = epoll::epoll_wait(self.raw_epoll_fd, &mut ep_evs, timeout as isize)?;
+        let ready_fds = self.epoll.wait(&mut ep_evs, timeout as u16)?;
 
         let mut event = Event::Nothing;
 
@@ -106,31 +76,7 @@ impl EventHandler {
             let data = ev.data();
             let new_event;
             if data == SIGNAL_EVENT {
-                new_event = match self.signalfd.read_signal() {
-                    Ok(Some(sig)) => {
-                        let signal = Signal::try_from(sig.ssi_signo as i32).unwrap();
-
-                        use nix::sys::signal::Signal::*;
-                        match signal {
-                            SIGTERM | SIGINT | SIGHUP => Event::Terminate,
-                            SIGCHLD => Event::ChildExit(Pid::from_raw(sig.ssi_pid as i32)),
-                            _ => {
-                                eprintln!(
-                                    "<runar> Unexpected signal {} caught by signalfd",
-                                    signal
-                                );
-                                Event::Terminate
-                            }
-                        }
-                    }
-                    // there were no signals waiting (only happens when the SFD_NONBLOCK flag is set,
-                    // otherwise the read_signal call blocks)
-                    Ok(None) => Event::Nothing,
-                    Err(e) => {
-                        eprintln!("<runar> Error: {}", e);
-                        Event::Terminate
-                    }
-                };
+                new_event = read_signal(&self.signalfd);
             } else if data == INOTIFY_EVENT {
                 self.clear_inotify()?;
 
@@ -158,6 +104,31 @@ impl EventHandler {
     }
 
     // TODO close and drop functions
+}
+
+fn read_signal(signalfd: &SignalFd) -> Event {
+    match signalfd.read_signal() {
+        Ok(Some(sig)) => {
+            let signal = Signal::try_from(sig.ssi_signo as i32).unwrap();
+
+            use nix::sys::signal::Signal::*;
+            match signal {
+                SIGTERM | SIGINT | SIGHUP => Event::Terminate,
+                SIGCHLD => Event::ChildExit(Pid::from_raw(sig.ssi_pid as i32)),
+                _ => {
+                    eprintln!("<runar> Unexpected signal {} caught by signalfd", signal);
+                    Event::Terminate
+                }
+            }
+        }
+        // there were no signals waiting (only happens when the SFD_NONBLOCK flag is set,
+        // otherwise the read_signal call blocks)
+        Ok(None) => Event::Nothing,
+        Err(e) => {
+            eprintln!("<runar> Error: {}", e);
+            Event::Terminate
+        }
+    }
 }
 
 // Set up Inotify instance

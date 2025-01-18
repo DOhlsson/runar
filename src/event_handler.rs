@@ -3,10 +3,10 @@ use std::{cmp, process};
 
 use nix::errno::Errno;
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
-use nix::sys::epoll::Epoll;
-use nix::sys::epoll::{EpollCreateFlags, EpollEvent, EpollFlags};
+use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 use nix::sys::inotify::{AddWatchFlags, InitFlags, Inotify};
 use nix::sys::signal::Signal;
+use nix::sys::signal::Signal::{SIGCHLD, SIGHUP, SIGINT, SIGTERM};
 use nix::sys::signalfd::{SfdFlags, SignalFd};
 use nix::unistd::Pid;
 
@@ -46,16 +46,17 @@ impl EventHandler {
         epoll.add(&inotify, inotify_ep_ev)?;
 
         Ok(EventHandler {
-            inotify,
             epoll,
+            inotify,
             signalfd,
         })
     }
 
-    pub fn wait_signals(&mut self, timeout: i32) -> Result<Event, Errno> {
+    pub fn wait_signals(&mut self, timeout: PollTimeout) -> Result<Event, Errno> {
         let mut pfd = [PollFd::new(self.signalfd.as_fd(), PollFlags::POLLIN)];
 
-        let res = poll(&mut pfd, PollTimeout::from(timeout as u16))?;
+        // TODO: tryfrom
+        let res = poll(&mut pfd, timeout)?;
 
         if res.is_positive() {
             Ok(read_signal(&self.signalfd))
@@ -111,12 +112,11 @@ fn read_signal(signalfd: &SignalFd) -> Event {
         Ok(Some(sig)) => {
             let signal = Signal::try_from(sig.ssi_signo as i32).unwrap();
 
-            use nix::sys::signal::Signal::*;
             match signal {
                 SIGTERM | SIGINT | SIGHUP => Event::Terminate,
                 SIGCHLD => Event::ChildExit(Pid::from_raw(sig.ssi_pid as i32)),
                 _ => {
-                    eprintln!("<runar> Unexpected signal {} caught by signalfd", signal);
+                    eprintln!("<runar> Unexpected signal {signal} caught by signalfd");
                     Event::Terminate
                 }
             }
@@ -125,7 +125,7 @@ fn read_signal(signalfd: &SignalFd) -> Event {
         // otherwise the read_signal call blocks)
         Ok(None) => Event::Nothing,
         Err(e) => {
-            eprintln!("<runar> Error: {}", e);
+            eprintln!("<runar> Error: {e}");
             Event::Terminate
         }
     }
@@ -140,7 +140,7 @@ fn setup_inotify(opts: &Options) -> Inotify {
     for file in &opts.files {
         if opts.recursive {
             // TODO could we do some iterator magic here?
-            for entry in WalkDir::new(&file).into_iter() {
+            for entry in WalkDir::new(file) {
                 match entry {
                     Err(e) => {
                         let e = e.io_error().unwrap();
@@ -151,7 +151,7 @@ fn setup_inotify(opts: &Options) -> Inotify {
                             );
                             process::exit(1);
                         } else {
-                            eprintln!("<runar> Unexpected walkdir error {}", e);
+                            eprintln!("<runar> Unexpected walkdir error {e}");
                             process::exit(1);
                         }
                     }
@@ -176,7 +176,7 @@ fn setup_inotify(opts: &Options) -> Inotify {
                     process::exit(1); // TODO handle error
                 }
                 Err(e) => {
-                    eprintln!("<runar> Unexpected inotify error {}", e);
+                    eprintln!("<runar> Unexpected inotify error {e}");
                     process::exit(1); // TODO handle error
                 }
             }

@@ -24,7 +24,7 @@ RUN chmod a+x /usr/bin/runar
 ```
 
 # How to use
-```shell
+```
 $ runar -h
 USAGE:
     runar [FLAGS] -- <COMMAND> <ARGS...>

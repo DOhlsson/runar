@@ -2,21 +2,17 @@ mod event_handler;
 mod parse_args;
 
 use std::os::unix::process::CommandExt;
-use std::process;
-use std::process::Command;
-use std::process::ExitCode;
+use std::process::{self, Command, ExitCode};
 
 use nix::errno::Errno;
+use nix::poll::PollTimeout;
 use nix::sys::prctl;
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd;
-use nix::unistd::Pid;
+use nix::unistd::{self, Pid};
 
-use event_handler::EventHandler;
+use event_handler::{Event, EventHandler};
 use parse_args::{parse_args, Options};
-
-use crate::event_handler::Event;
 
 #[derive(Clone, Copy, Debug)]
 enum State {
@@ -37,7 +33,7 @@ fn main() -> ExitCode {
 
     let exitstatus = match run_loop(&opts) {
         Err(e) => {
-            eprintln!("<runar> Error: {}", e);
+            eprintln!("<runar> Error: {e}");
             1
         }
         Ok(exitstatus) => exitstatus,
@@ -60,7 +56,7 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
     loop {
         event = match state {
             State::Dead => {
-                let res = handler.wait_signals(100)?;
+                let res = handler.wait_signals(PollTimeout::from(100_u16))?;
                 handler.clear_inotify()?;
                 res
             }
@@ -69,7 +65,7 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
 
         // TODO debug level
         if opts.verbose {
-            println!("<runar> main loop state & event ({:?}, {:?})", state, event);
+            println!("<runar> main loop state & event ({state:?}, {event:?})");
         }
 
         match (state, event) {
@@ -87,7 +83,7 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
                     WaitStatus::Exited(_, status) => status as u8,
                     WaitStatus::Signaled(_, signal, _) => 128 + signal as u8,
                     status => {
-                        eprintln!("<runar> Error: Unhandled status {:?}", status);
+                        eprintln!("<runar> Error: Unhandled status {status:?}");
                         continue;
                     }
                 };
@@ -96,7 +92,7 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
                 term_wait_kill(child_pid, &mut handler, opts);
 
                 if opts.verbose {
-                    println!("<runar> child process exited with {}", status);
+                    println!("<runar> child process exited with {status}");
                 }
 
                 if opts.exit_on_zero && status == 0 {
@@ -156,11 +152,10 @@ fn spawn_child(opts: &Options) -> Pid {
         });
     }
 
-    let child = command.spawn().expect("Could not execute command");
-    let child_pid = child.id() as i32;
+    let child_pid = command.spawn().expect("Could not execute command").id() as i32;
 
     if opts.verbose {
-        println!("<runar> child process spawned with pid {}", child_pid);
+        println!("<runar> child process spawned with pid {child_pid}");
     }
 
     Pid::from_raw(child_pid)
@@ -172,10 +167,10 @@ fn term_wait_kill(pid: Pid, handler: &mut EventHandler, opts: &Options) {
 
     // Send terminate signal to children, giving them time to terminate before we kill everything
     match kill(pgrp, Signal::SIGTERM) {
-        Ok(_) => (),
+        Ok(()) => (),
         Err(Errno::ESRCH) => return, // No processes left in group
         Err(e) => {
-            eprintln!("<runar> Kill got error: {}", e);
+            eprintln!("<runar> Kill got error: {e}");
             return;
         }
     }

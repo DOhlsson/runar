@@ -29,3 +29,7 @@ opt-level = "z"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+[lints.clippy]
+uninlined_format_args = "warn"
+ignored_unit_patterns = "warn"

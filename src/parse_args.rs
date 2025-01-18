@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use nix::sys::signal;
-use nix::sys::signal::SigSet;
+use nix::poll::PollTimeout;
+use nix::sys::signal::{self, SigSet};
 
 use pico_args::Arguments;
 
@@ -41,7 +41,7 @@ pub struct Options {
     pub exit_on_error: bool,
     pub recursive: bool,
     pub verbose: bool,
-    pub kill_timer: i32,
+    pub kill_timer: PollTimeout,
     pub command: Vec<OsString>,
     pub files: Vec<OsString>,
     pub sigmask: SigSet,
@@ -63,7 +63,7 @@ pub fn parse_args() -> Result<Options, ExitCode> {
     let mut args = Arguments::from_vec(args);
 
     if args.contains(["-h", "--help"]) {
-        println!("{}", HELP);
+        println!("{HELP}");
         return Err(ExitCode::SUCCESS);
     }
 
@@ -78,7 +78,7 @@ pub fn parse_args() -> Result<Options, ExitCode> {
 
     if command.is_none() {
         eprintln!("<runar> Error: Expected command after -- argument");
-        println!("{}", HELP);
+        println!("{HELP}");
         return Err(ExitCode::FAILURE);
     }
 
@@ -87,7 +87,7 @@ pub fn parse_args() -> Result<Options, ExitCode> {
 
     if command.is_empty() {
         eprintln!("<runar> Error: Expected command after -- argument");
-        println!("{}", HELP);
+        println!("{HELP}");
         return Err(ExitCode::FAILURE);
     }
 
@@ -96,15 +96,11 @@ pub fn parse_args() -> Result<Options, ExitCode> {
     let recursive = args.contains(["-r", "--recursive"]);
     let verbose = args.contains(["-v", "--verbose"]);
 
-    let kill_timer = match args.opt_value_from_str(["-k", "--kill-timer"]) {
-        Ok(None) => 5000,
-        Ok(Some(kt)) if kt >= 0 => kt,
-        Ok(Some(_)) => {
-            eprintln!("<runar> Error: kill timer must be a positive integer");
-            return Err(ExitCode::FAILURE);
-        }
+    let kill_timer = match args.opt_value_from_str::<_, i32>(["-k", "--kill-timer"]) {
+        Ok(None) => PollTimeout::from(5000_u16),
+        Ok(Some(kt)) => PollTimeout::try_from(kt).expect("polltimeout"),
         Err(e) => {
-            eprintln!("<runar> Error: {}", e);
+            eprintln!("<runar> Error: {e}");
             return Err(ExitCode::FAILURE);
         }
     };
@@ -116,7 +112,7 @@ pub fn parse_args() -> Result<Options, ExitCode> {
             Ok(None) => break,
             Ok(Some(file)) => files.push(file),
             Err(e) => {
-                eprintln!("<runar> Error: {}", e);
+                eprintln!("<runar> Error: {e}");
                 return Err(ExitCode::FAILURE);
             }
         };
@@ -125,7 +121,7 @@ pub fn parse_args() -> Result<Options, ExitCode> {
     let remaining = args.finish();
 
     if !remaining.is_empty() {
-        eprintln!("<runar> Error: Unknown arguments {:?}", remaining);
+        eprintln!("<runar> Error: Unknown arguments {remaining:?}");
         return Err(ExitCode::FAILURE);
     }
 

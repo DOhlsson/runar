@@ -5,9 +5,10 @@ extern crate test_binary;
 // TODO add exitstatus to all tests
 
 mod integration {
+    use std::ffi::OsString;
     use std::process::Child;
     use std::process::Stdio;
-    use std::sync::Once;
+    use std::sync::LazyLock;
     use std::thread;
     use std::time::Duration;
 
@@ -23,23 +24,13 @@ mod integration {
     use nix::sys::signal::Signal;
     use nix::unistd::Pid;
 
-    use test_binary::build_mock_binary_with_opts;
+    use test_binary::build_test_binary;
 
-    const TEST_BINARY_PATH: &str = env!("CARGO_BIN_EXE_runartest");
-    static INIT: Once = Once::new();
+    static INIT: LazyLock<OsString> =
+        LazyLock::new(|| build_test_binary("runartest", "testbins").unwrap());
 
     fn testprog() -> &'static str {
-        INIT.call_once(|| {
-            build_mock_binary_with_opts("runartest", None, vec!["runartest"]).unwrap();
-        });
-
-        TEST_BINARY_PATH
-        /*
-        let mut testprog = TEST_BINARY_PATH.to_owned();
-        testprog.push_str(" ");
-        testprog.push_str(arg);
-        return testprog;
-        */
+        INIT.to_str().unwrap()
     }
 
     fn run_runar(args: Vec<&str>) -> Child {

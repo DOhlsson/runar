@@ -1,5 +1,3 @@
-extern crate nix;
-
 use std::env::Args;
 use std::io::BufRead;
 use std::process::Command;

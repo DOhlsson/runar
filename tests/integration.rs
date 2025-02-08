@@ -126,7 +126,7 @@ mod integration {
     fn exit_flag_with_success() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-x", "--", testprog(), "foo", "success"])
+            .args(["-e", "--", testprog(), "foo", "success"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -140,26 +140,21 @@ mod integration {
     fn exit_flag_with_error() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-x", "--", testprog(), "foo", "error"])
+            .args(["-E", "--", testprog(), "foo", "error"])
             .timeout(Duration::from_millis(200))
             .assert();
 
         // runar starts runartest
         // runartest errors
-        // runar restarts runartest
-        // runartest errors
         // runar gets interrupted
-        assert
-            .stdout("start foo\nstart foo\n")
-            .stderr("err foo\nerr foo\n")
-            .interrupted();
+        assert.stdout("start foo\n").stderr("err foo\n").code(13);
     }
 
     #[test]
-    fn exit_on_error_flag_with_success() {
+    fn exit_on_error_flag_with_restart() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-e", "--", testprog(), "foo", "success"])
+            .args(["-E", "-s", "--", testprog(), "foo", "success"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -175,10 +170,10 @@ mod integration {
     }
 
     #[test]
-    fn exit_on_error_flag_with_error() {
+    fn exit_on_success_flag_with_error() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["-e", "--", testprog(), "foo", "error"])
+            .args(["-E", "--", testprog(), "foo", "error"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -192,7 +187,7 @@ mod integration {
     fn restart_on_error() {
         let assert = Command::cargo_bin("runar")
             .unwrap()
-            .args(["--", testprog(), "foo", "error"])
+            .args(["-S", "--", testprog(), "foo", "error"])
             .timeout(Duration::from_millis(200))
             .assert();
 
@@ -264,7 +259,7 @@ mod integration {
         tmp_file.touch().unwrap();
         let file = tmp_file.to_str().unwrap();
 
-        let runar = run_runar(vec!["-xk10", "-f", file, "--", testprog(), "foo", "hang"]);
+        let runar = run_runar(vec!["-Ek10", "-f", file, "--", testprog(), "foo", "hang"]);
 
         delayed_write_file(200, tmp_file);
         delayed_sigterm(500, runar.id() as i32);
@@ -396,7 +391,7 @@ mod integration {
 
     #[test]
     fn grandchild_cleanup() {
-        let runar = run_runar(vec!["-x", "--", testprog(), "foo", "child", "bar", "sleep"]);
+        let runar = run_runar(vec!["-E", "--", testprog(), "foo", "child", "bar", "sleep"]);
 
         delayed_sigterm(500, runar.id() as i32);
 

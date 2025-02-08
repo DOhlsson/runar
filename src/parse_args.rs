@@ -10,35 +10,35 @@ const HELP: &str = concat!(
     env!("CARGO_PKG_NAME"),
     " ",
     env!("CARGO_PKG_VERSION"),
-    "\n",
-    env!("CARGO_PKG_AUTHORS"),
-    "\n",
+    "\n\n",
     env!("CARGO_PKG_DESCRIPTION"),
     "\n\n",
     "\
 USAGE:
-    runar [FLAGS] -- <COMMAND> <ARGS...>
+    runar [FLAGS] -- <COMMAND> [ARGS...]
 
 FLAGS:
-    -x, --exit                      exit when COMMAND returns zero
-    -e, --exit-on-error             exits with the same status code as COMMAND
-    -h, --help                      Prints help information
-    -r, --recursive                 recursively watch directories
-    -V, --version                   Prints version information
-    -v, --verbose                   increases the level of verbosity
-    -k, --kill-timer <kill-timer>   time in milliseconds until kill signal is sent [default: 5000]
     -f, --file <filename>           path to file or directory to watch, multiple flags allowed
+    -r, --recursive                 recursively watch directories
+    -e, --exit                      exit runar if COMMAND returns status code 0
+    -E, --exit-on-error             exit runar if COMMAND returns statuse code >0
+    -s, --restart                   restart COMMAND if it returns status code 0
+    -S, --restart-on-error          restart COMMAND if it returns status code >0
+    -k, --kill-timer <kill-timer>   time in milliseconds until kill signal is sent (default: 5000)
+    -v, --verbose                   increases the level of verbosity
+    -h, --help                      Prints help information
 
 ARGS:
     <COMMAND>    the COMMAND to execute
-    <ARGS>...    the arguments to COMMAND
+    [ARGS...]    the arguments to COMMAND
 "
 );
 
-#[derive(Debug)]
 pub struct Options {
     pub exit_on_zero: bool,
     pub exit_on_error: bool,
+    pub restart_on_zero: bool,
+    pub restart_on_error: bool,
     pub recursive: bool,
     pub verbose: bool,
     pub kill_timer: PollTimeout,
@@ -67,22 +67,12 @@ pub fn parse_args() -> Result<Options, ExitCode> {
         return Err(ExitCode::SUCCESS);
     }
 
-    if args.contains(["-V", "--version"]) {
-        println!(
-            "{} version {}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        );
-        return Err(ExitCode::SUCCESS);
-    }
-
-    if command.is_none() {
+    let Some(mut command) = command else {
         eprintln!("<runar> Error: Expected command after -- argument");
         println!("{HELP}");
         return Err(ExitCode::FAILURE);
-    }
+    };
 
-    let mut command = command.unwrap();
     command.remove(0); // Remove --
 
     if command.is_empty() {
@@ -91,8 +81,10 @@ pub fn parse_args() -> Result<Options, ExitCode> {
         return Err(ExitCode::FAILURE);
     }
 
-    let exit_on_zero = args.contains(["-x", "--exit"]);
-    let exit_on_error = args.contains(["-e", "--exit-on-error"]);
+    let exit_on_zero = args.contains(["-e", "--exit"]);
+    let exit_on_error = args.contains(["-E", "--exit-on-error"]);
+    let restart_on_zero = args.contains(["-s", "--restart"]);
+    let restart_on_error = args.contains(["-S", "--restart-on-error"]);
     let recursive = args.contains(["-r", "--recursive"]);
     let verbose = args.contains(["-v", "--verbose"]);
 
@@ -135,6 +127,8 @@ pub fn parse_args() -> Result<Options, ExitCode> {
     Ok(Options {
         exit_on_zero,
         exit_on_error,
+        restart_on_zero,
+        restart_on_error,
         recursive,
         verbose,
         kill_timer,

@@ -14,7 +14,7 @@ Quick links:
 # Installation
 Linux:
 ```shell
-$ cargo install --git https://github.com/DOhlsson/runar.git
+$ cargo install runar
 ```
 
 Docker:
@@ -27,21 +27,22 @@ RUN chmod a+x /usr/bin/runar
 ```
 $ runar -h
 USAGE:
-    runar [FLAGS] -- <COMMAND> <ARGS...>
+    runar [FLAGS] -- <COMMAND> [ARGS...]
 
 FLAGS:
-    -x, --exit                      exit when COMMAND returns zero
-    -e, --exit-on-error             exits with the same status code as COMMAND
-    -h, --help                      Prints help information
-    -r, --recursive                 recursively watch directories
-    -V, --version                   Prints version information
-    -v, --verbose                   increases the level of verbosity
-    -k, --kill-timer <kill-timer>   time in milliseconds until kill signal is sent [default: 5000]
     -f, --file <filename>           path to file or directory to watch, multiple flags allowed
+    -r, --recursive                 recursively watch directories
+    -e, --exit                      exit runar if COMMAND returns status code 0
+    -E, --exit-on-error             exit runar if COMMAND returns statuse code >0
+    -s, --restart                   restart COMMAND if it returns status code 0
+    -S, --restart-on-error          restart COMMAND if it returns status code >0
+    -k, --kill-timer <kill-timer>   time in milliseconds until kill signal is sent (default: 5000)
+    -v, --verbose                   increases the level of verbosity
+    -h, --help                      Prints help information
 
 ARGS:
     <COMMAND>    the COMMAND to execute
-    <ARGS>...    the arguments to COMMAND
+    [ARGS...]    the arguments to COMMAND
 ```
 
 Watch a directory recursively and restart your program when the directory is updated.
@@ -51,7 +52,7 @@ $ runar -r -f ./src -- your program
 
 Run and restart a program until it is successfull.
 ```shell
-$ runar -x -- your program
+$ runar -e -S -- your program
 ```
 
 More options are available, see the -h flag.

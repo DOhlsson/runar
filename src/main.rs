@@ -15,9 +15,11 @@ use event_handler::{Event, EventHandler};
 use parse_args::{parse_args, Options};
 
 #[derive(Clone, Copy, Debug)]
-enum State {
-    Running,
-    Dead,
+/// Child process state
+enum ChildState {
+    Alive,
+    Dormant,
+    Restarting,
 }
 
 fn main() -> ExitCode {
@@ -48,19 +50,26 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
 
     let mut handler = EventHandler::create(opts)?;
 
+    // The exit status of previously run of the command
     let mut exitstatus = 0;
+
     let mut child_pid = spawn_child(opts);
     let mut event;
-    let mut state = State::Running;
+    let mut state = ChildState::Alive;
 
     loop {
+        // TODO: the ultimate goal is to get rid of the need for tracking ChildState,
+        //       Could be possible using pidfd
+        //       Or by using kill with signal 0 to check process state
         event = match state {
-            State::Dead => {
+            ChildState::Restarting => {
+                // Wait 100ms and then clear inotify of any residual changes to files
+                // We do not care about changed files here since we are restarting anyway
                 let res = handler.wait_signals(PollTimeout::from(100_u16))?;
                 handler.clear_inotify()?;
                 res
             }
-            State::Running => handler.wait(-1)?,
+            ChildState::Alive | ChildState::Dormant => handler.wait(-1)?,
         };
 
         // TODO debug level
@@ -68,18 +77,24 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
             println!("<runar> main loop state & event ({state:?}, {event:?})");
         }
 
-        match (state, event) {
-            (State::Running, Event::Terminate) => {
+        match (event, state) {
+            (Event::Terminate, ChildState::Alive) => {
                 term_wait_kill(child_pid, &mut handler, opts);
                 break;
             }
-            (State::Running, Event::FilesChanged) => {
-                term_wait_kill(child_pid, &mut handler, opts);
-                state = State::Dead; // Restart child
+            (Event::Terminate, ChildState::Restarting | ChildState::Dormant) => {
+                break;
             }
-            (State::Running, Event::ChildExit(dead_pid)) if dead_pid == child_pid => {
+            (Event::FilesChanged, ChildState::Alive) => {
+                term_wait_kill(child_pid, &mut handler, opts);
+                state = ChildState::Restarting; // Restart child
+            }
+            (Event::FilesChanged, ChildState::Dormant) => {
+                state = ChildState::Restarting;
+            }
+            (Event::ChildExit(dead_pid), ChildState::Alive) if dead_pid == child_pid => {
                 let child_status = waitpid(child_pid, Some(WaitPidFlag::WNOHANG))?;
-                let status = match child_status {
+                exitstatus = match child_status {
                     WaitStatus::Exited(_, status) => status as u8,
                     WaitStatus::Signaled(_, signal, _) => 128 + signal as u8,
                     status => {
@@ -92,37 +107,43 @@ fn run_loop(opts: &Options) -> Result<u8, Errno> {
                 term_wait_kill(child_pid, &mut handler, opts);
 
                 if opts.verbose {
-                    println!("<runar> child process exited with {status}");
+                    println!("<runar> child process exited with {exitstatus}");
                 }
 
-                if opts.exit_on_zero && status == 0 {
+                if opts.exit_on_zero && exitstatus == 0 {
                     break;
                 }
 
-                if opts.exit_on_error && status != 0 {
-                    exitstatus = status;
+                if opts.exit_on_error && exitstatus != 0 {
                     break;
                 }
 
-                // Next loop we will wait a bit to prevent the child restart loop from spazzing out
-                state = State::Dead;
+                if opts.restart_on_zero && exitstatus == 0 {
+                    // Next loop we will wait a bit to prevent the child restart loop from spazzing out
+                    state = ChildState::Restarting;
+                } else if opts.restart_on_error && exitstatus != 0 {
+                    state = ChildState::Restarting;
+                } else {
+                    state = ChildState::Dormant;
+                }
             }
-            (_, Event::ChildExit(dead_pid)) => {
+            (Event::ChildExit(dead_pid), _) => {
                 // Some inherited child died, this cleans it up
                 match waitpid(dead_pid, Some(WaitPidFlag::WNOHANG)) {
                     Ok(_) => (),
-                    Err(Errno::ECHILD) => (), // Child was cleaned up before we handled the signal
+                    Err(Errno::ECHILD) => (), // Child was waited on before we handled the signal
                     Err(e) => return Err(e),
                 };
             }
-            (State::Running, Event::Nothing) => (),
-            (State::Dead, Event::Terminate) => {
-                break;
-            }
-            // An unknown child exited
-            (State::Dead, _) => {
+            (Event::Nothing, ChildState::Alive | ChildState::Dormant) => (),
+            // restart process?
+            (_, ChildState::Restarting) => {
+                // should needs to know if we should restart or not
+                // file change is always a restart condition,
+                // exit status is not
+                // should also take into account if the exit status was voluntary or not
                 child_pid = spawn_child(opts);
-                state = State::Running;
+                state = ChildState::Alive;
             }
         }
     }

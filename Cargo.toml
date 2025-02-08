@@ -12,6 +12,8 @@ categories = ["command-line-utilities"]
 license = "GPL-3.0-or-later"
 edition = "2021"
 default-run = "runar"
+include = ["src/**/*", "LICENSE", "README.md"]
+rust-version = "1.78.0"
 
 [dependencies]
 nix = { version = "0.29", features = ["event", "poll", "process", "inotify", "signal"] }

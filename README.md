@@ -19,7 +19,7 @@ $ cargo install runar
 
 Docker:
 ```Dockerfile
-ADD https://github.com/DOhlsson/runar/releases/download/0.2.0/runar /usr/bin/runar
+ADD https://github.com/DOhlsson/runar/releases/download/0.3.0/runar /usr/bin/runar
 RUN chmod a+x /usr/bin/runar
 ```
 
